@@ -4,12 +4,17 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
 
     <application
         android:label="TV Link"
         android:usesCleartextTraffic="true"
+        android:largeHeap="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
         <activity android:name=".MainActivity" android:exported="true">
@@ -21,6 +26,7 @@
         </activity>
 
         <activity android:name=".ReceiverActivity" android:exported="false"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden"/>
 
         <activity android:name=".SenderActivity" android:exported="true"
@@ -32,6 +38,21 @@
                 <data android:mimeType="image/*"/>
                 <data android:mimeType="application/pdf"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
         </activity>
+
+        <service android:name=".ScreenService" android:exported="false"
+            android:foregroundServiceType="mediaProjection"/>
+
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

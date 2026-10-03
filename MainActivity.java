@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     }
 
     private void go(String mode) {
+        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("mode", mode).apply();
         startActivity(new Intent(this, "tv".equals(mode) ? ReceiverActivity.class : SenderActivity.class));
         finish();
     }

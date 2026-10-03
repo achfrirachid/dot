@@ -1,7 +1,12 @@
 package com.tvlink.app;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.content.Intent;
+import android.provider.Settings;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -12,6 +17,7 @@ import android.media.ExifInterface;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.view.Gravity;
@@ -25,6 +31,9 @@ import android.widget.TextView;
 import android.widget.VideoView;
 
 import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -58,24 +67,37 @@ public class ReceiverActivity extends Activity {
     private ParcelFileDescriptor pfd;
     private int page;
     private boolean showing;
+    private WebView web;
+    private File curFile;
+    private String curType;
+    private int quality = 2;
+    private final AtomicInteger streamId = new AtomicInteger();
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
-        code = sp.getString("code", null);
-        if (code == null) {
-            code = newCode();
-            sp.edit().putString("code", code).apply();
-        }
+        code = sp.getString("paircode", Net.DEFAULT_CODE);
         buildUi();
+        askOverlay();
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             mlock = wm.createMulticastLock("tvlink");
             mlock.acquire();
         } catch (Exception ignored) {}
         startServer();
+    }
+
+    // إذن ضروري باش التطبيق يتفتح بوحدو مني TV Box كيشعل (Android 10+)
+    private void askOverlay() {
+        try {
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -104,6 +126,19 @@ public class ReceiverActivity extends Activity {
         root.addView(image, new FrameLayout.LayoutParams(-1, -1));
         image.setVisibility(View.GONE);
 
+        try {
+            web = new WebView(this);
+            WebSettings ws = web.getSettings();
+            ws.setJavaScriptEnabled(true);
+            ws.setDomStorageEnabled(true);
+            ws.setMediaPlaybackRequiresUserGesture(false);
+            web.setWebViewClient(new WebViewClient());
+            root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+            web.setVisibility(View.GONE);
+        } catch (Throwable t) {
+            web = null;
+        }
+
         idle = new LinearLayout(this);
         idle.setOrientation(LinearLayout.VERTICAL);
         idle.setGravity(Gravity.CENTER);
@@ -115,15 +150,24 @@ public class ReceiverActivity extends Activity {
 
         codeView = new TextView(this);
         codeView.setTextColor(Color.parseColor("#4FC3F7"));
-        codeView.setTextSize(80);
+        codeView.setTextSize(64);
         codeView.setGravity(Gravity.CENTER);
 
         Button bNew = new Button(this);
-        bNew.setText("كود جديد");
+        bNew.setText("كود عشوائي جديد");
         bNew.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 code = newCode();
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("code", code).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                refreshInfo();
+            }
+        });
+        Button bDef = new Button(this);
+        bDef.setText("الكود الثابت " + Net.DEFAULT_CODE);
+        bDef.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                code = Net.DEFAULT_CODE;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
                 refreshInfo();
             }
         });
@@ -139,6 +183,7 @@ public class ReceiverActivity extends Activity {
         idle.addView(info);
         idle.addView(codeView);
         idle.addView(bNew);
+        idle.addView(bDef);
         idle.addView(bMode);
         root.addView(idle, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
@@ -263,6 +308,23 @@ public class ReceiverActivity extends Activity {
                     @Override public void run() { control(cmd); }
                 });
                 reply(out, 200, "ok");
+            } else if ("/open".equals(p)) {
+                final String app = u.getQueryParameter("app");
+                final String q = u.getQueryParameter("q");
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { openApp(app, q); }
+                });
+                reply(out, 200, "ok");
+            } else if ("/stream".equals(p)) {
+                s.setSoTimeout(0);
+                s.setKeepAlive(true);
+                streamLoop(in);
+            } else if ("/link".equals(p)) {
+                final String link = u.getQueryParameter("u");
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { showLink(link); }
+                });
+                reply(out, 200, "ok");
             } else if ("/send".equals(p)) {
                 String name = u.getQueryParameter("name");
                 if (name == null) name = "file";
@@ -297,7 +359,11 @@ public class ReceiverActivity extends Activity {
 
     // ---------------- display ----------------
     private void show(File f, String type) {
+        killStream();
+        front();
         stopMedia();
+        curFile = f;
+        curType = type;
         File[] old = f.getParentFile().listFiles();
         if (old != null) for (File o : old) if (!o.equals(f)) o.delete();
         idle.setVisibility(View.GONE);
@@ -319,6 +385,7 @@ public class ReceiverActivity extends Activity {
                 video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                     @Override public boolean onError(MediaPlayer mp, int what, int extra) {
                         stopMedia();
+                        hintView().setText("❌ الفيديو ما تقراش (" + what + "/" + extra + ")\nصيغة أو ترميز غير مدعوم في TV Box");
                         return true;
                     }
                 });
@@ -326,6 +393,7 @@ public class ReceiverActivity extends Activity {
             }
         } catch (Exception e) {
             stopMedia();
+            hintView().setText("❌ ما قدرتش نعرض هاد الملف");
         }
     }
 
@@ -333,7 +401,7 @@ public class ReceiverActivity extends Activity {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
         int h = root.getHeight() > 0 ? root.getHeight() : 1080;
-        h = Math.min(h * 2, 2400);
+        h = Math.min(h * 2, quality == 2 ? 3000 : 1600);
         float scale = (float) h / pg.getHeight();
         int w = Math.max(1, (int) (pg.getWidth() * scale));
         Bitmap bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
@@ -349,7 +417,8 @@ public class ReceiverActivity extends Activity {
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(f.getPath(), o);
         int s = 1;
-        while (o.outWidth / s > 2400 || o.outHeight / s > 2400) s *= 2;
+        int cap = quality == 2 ? 3840 : 1920;
+        while (o.outWidth / s > cap || o.outHeight / s > cap) s *= 2;
         o = new BitmapFactory.Options();
         o.inSampleSize = s;
         Bitmap bm = BitmapFactory.decodeFile(f.getPath(), o);
@@ -375,6 +444,12 @@ public class ReceiverActivity extends Activity {
         try { if (pfd != null) pfd.close(); } catch (Exception ignored) {}
         pdf = null;
         pfd = null;
+        curFile = null;
+        curType = null;
+        if (web != null) {
+            try { web.loadUrl("about:blank"); } catch (Exception ignored) {}
+            web.setVisibility(View.GONE);
+        }
         showing = false;
         idle.setVisibility(View.VISIBLE);
     }
@@ -388,6 +463,7 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "stop":
+                killStream();
                 stopMedia();
                 break;
             case "fwd":
@@ -395,6 +471,14 @@ public class ReceiverActivity extends Activity {
                 break;
             case "back":
                 if (video.getVisibility() == View.VISIBLE) video.seekTo(Math.max(0, video.getCurrentPosition() - 10000));
+                break;
+            case "qh":
+                quality = 2;
+                reload();
+                break;
+            case "ql":
+                quality = 1;
+                reload();
                 break;
             case "next":
                 if (pdf != null && page < pdf.getPageCount() - 1) { page++; renderPage(); }
@@ -405,9 +489,125 @@ public class ReceiverActivity extends Activity {
         }
     }
 
+    private void killStream() { streamId.incrementAndGet(); }
+
+    private void front() {
+        try {
+            Intent i = new Intent(this, ReceiverActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception ignored) {}
+    }
+
+    private void streamLoop(InputStream in) {
+        final int id = streamId.incrementAndGet();
+        runOnUiThread(new Runnable() {
+            @Override public void run() {
+                front();
+                stopMedia();
+                curType = "stream";
+                idle.setVisibility(View.GONE);
+                image.setVisibility(View.VISIBLE);
+                showing = true;
+            }
+        });
+        final AtomicBoolean pending = new AtomicBoolean(false);
+        try {
+            DataInputStream di = new DataInputStream(in);
+            byte[] buf = new byte[256 * 1024];
+            while (running && streamId.get() == id) {
+                int n = di.readInt();
+                if (n <= 0 || n > 10000000) break;
+                if (buf.length < n) buf = new byte[n];
+                di.readFully(buf, 0, n);
+                if (pending.get()) continue;
+                final Bitmap bm = BitmapFactory.decodeByteArray(buf, 0, n);
+                if (bm == null) continue;
+                pending.set(true);
+                runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if (streamId.get() == id) image.setImageBitmap(bm);
+                        pending.set(false);
+                    }
+                });
+            }
+        } catch (Exception ignored) {}
+        if (streamId.get() == id) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() { if (streamId.get() == id) stopMedia(); }
+            });
+        }
+    }
+
+    private void openApp(String app, String q) {
+        killStream();
+        stopMedia();
+        boolean fb = "facebook".equals(app);
+        boolean hasQ = q != null && !q.trim().isEmpty();
+        String url;
+        String[] pkgs;
+        if (fb) {
+            url = hasQ ? "https://www.facebook.com/search/top?q=" + Uri.encode(q) : "https://www.facebook.com";
+            pkgs = new String[]{"com.facebook.katana", "com.facebook.lite"};
+        } else {
+            url = hasQ ? "https://www.youtube.com/results?search_query=" + Uri.encode(q) : "https://www.youtube.com";
+            pkgs = new String[]{"com.google.android.youtube.tv", "com.google.android.youtube", "com.liskovsoft.smarttubetv"};
+        }
+        for (String pk : pkgs) {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                i.setPackage(pk);
+                startActivity(i);
+                return;
+            } catch (Exception ignored) {}
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            return;
+        } catch (Exception ignored) {}
+        if (web != null) {
+            idle.setVisibility(View.GONE);
+            showing = true;
+            web.setVisibility(View.VISIBLE);
+            web.loadUrl(url.replace("www.", "m."));
+        } else {
+            hintView().setText("❌ ما كاينش متصفح في TV Box");
+        }
+    }
+
+    private void reload() {
+        try {
+            if ("pdf".equals(curType) && pdf != null) renderPage();
+            else if ("image".equals(curType) && curFile != null) image.setImageBitmap(decode(curFile));
+        } catch (Exception ignored) {}
+    }
+
+    private void showLink(String link) {
+        if (link == null) return;
+        killStream();
+        stopMedia();
+        String id = null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?:youtu\\.be/|v=|shorts/|embed/)([A-Za-z0-9_-]{11})").matcher(link);
+        if (m.find()) id = m.group(1);
+        String url = id != null ? "https://www.youtube.com/watch?v=" + id : link;
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            return;
+        } catch (ActivityNotFoundException ignored) {}
+        if (web != null) {
+            idle.setVisibility(View.GONE);
+            showing = true;
+            web.setVisibility(View.VISIBLE);
+            web.loadUrl(id != null ? "https://m.youtube.com/watch?v=" + id : link);
+        } else {
+            hintView().setText("❌ ما كاينش تطبيق يفتح الرابط في TV Box");
+        }
+    }
+
     @Override
     public void onBackPressed() {
-        if (showing) stopMedia(); else super.onBackPressed();
+        if (showing) { killStream(); stopMedia(); } else super.onBackPressed();
     }
 
     @Override

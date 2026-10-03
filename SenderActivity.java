@@ -1,11 +1,15 @@
 package com.tvlink.app;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
+import android.media.projection.MediaProjectionManager;
 import android.net.ConnectivityManager;
+import android.os.Build;
 import android.net.DhcpInfo;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -35,10 +39,17 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SenderActivity extends Activity {
     private EditText codeF, ipF;
     private TextView status;
+    private Button qBtn;
+    private boolean hq = true;
+    private EditText qF;
+    private Button mBtn;
+    private int mlevel = 1;
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile String ip;
@@ -48,9 +59,15 @@ public class SenderActivity extends Activity {
         super.onCreate(b);
         sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         ip = sp.getString("ip", null);
+        mlevel = sp.getInt("mlevel", 1);
         bindWifi();
         buildUi();
-        handle(getIntent());
+        Intent in = getIntent();
+        if (in != null && Intent.ACTION_SEND.equals(in.getAction())) {
+            handle(in);
+        } else {
+            connect();   // ربط تلقائي بالكود المحفوظ
+        }
     }
 
     @Override
@@ -61,10 +78,14 @@ public class SenderActivity extends Activity {
     }
 
     private void handle(Intent i) {
-        if (i != null && Intent.ACTION_SEND.equals(i.getAction())) {
-            Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (u != null) sendUri(u);
+        if (i == null || !Intent.ACTION_SEND.equals(i.getAction())) return;
+        Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (u != null) {
+            sendUri(u, null);
+            return;
         }
+        String t = i.getStringExtra(Intent.EXTRA_TEXT);
+        if (t != null) sendLinkText(t);
     }
 
     // ---------------- UI ----------------
@@ -73,6 +94,28 @@ public class SenderActivity extends Activity {
         bt.setText(t);
         bt.setOnClickListener(l);
         return bt;
+    }
+
+    private Button weight(Button b) {
+        b.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
+        return b;
+    }
+
+    private View.OnClickListener ctl(final String cmd) {
+        return new View.OnClickListener() {
+            @Override public void onClick(View v) { sendCmd(cmd); }
+        };
+    }
+
+    private View.OnClickListener pickL(final String mime, final int req) {
+        return new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType(mime);
+                startActivityForResult(i, req);
+            }
+        };
     }
 
     private void buildUi() {
@@ -87,23 +130,55 @@ public class SenderActivity extends Activity {
         l.addView(title);
 
         codeF = new EditText(this);
-        codeF.setHint("كود TV Box (6 أرقام)");
+        codeF.setHint("كود TV Box");
         codeF.setInputType(InputType.TYPE_CLASS_NUMBER);
-        codeF.setText(sp.getString("code", ""));
+        codeF.setText(sp.getString("paircode", Net.DEFAULT_CODE));
         codeF.setTextSize(24);
         l.addView(codeF);
 
         ipF = new EditText(this);
-        ipF.setHint("IP ديال TV Box (اختياري، غير إلا ما لقاهش)");
+        ipF.setHint("IP ديال TV Box (اختياري)");
         ipF.setInputType(InputType.TYPE_CLASS_PHONE);
         l.addView(ipF);
 
         l.addView(btn("🔗 اتصل بـ TV Box", new View.OnClickListener() {
             @Override public void onClick(View v) { connect(); }
         }));
-        l.addView(btn("📂 اختر فيديو / PDF / صورة", new View.OnClickListener() {
-            @Override public void onClick(View v) { pick(); }
+
+        LinearLayout pk = new LinearLayout(this);
+        pk.addView(weight(btn("🎬 فيديو", pickL("video/*", 1))));
+        pk.addView(weight(btn("🖼 صورة", pickL("image/*", 2))));
+        pk.addView(weight(btn("📄 PDF", pickL("application/pdf", 3))));
+        l.addView(pk);
+
+        l.addView(btn("▶ يوتيوب: الصق الرابط (يحتاج TV Box فيه إنترنت)", new View.OnClickListener() {
+            @Override public void onClick(View v) { pasteLink(); }
         }));
+
+        qF = new EditText(this);
+        qF.setHint("🔎 كلمة البحث (اختياري) لليوتيوب / الفيسبوك");
+        l.addView(qF);
+        LinearLayout ap = new LinearLayout(this);
+        ap.addView(weight(btn("▶ يوتيوب", openL("youtube"))));
+        ap.addView(weight(btn("📘 فيسبوك", openL("facebook"))));
+        l.addView(ap);
+
+        l.addView(btn("📱 عرض شاشة الهاتف على TV Box", new View.OnClickListener() {
+            @Override public void onClick(View v) { startMirror(); }
+        }));
+        LinearLayout mr = new LinearLayout(this);
+        mr.addView(weight(btn("⏹ وقف عرض الشاشة", new View.OnClickListener() {
+            @Override public void onClick(View v) { stopMirror(); }
+        })));
+        mBtn = btn(levelText(), new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                mlevel = (mlevel + 1) % 3;
+                sp.edit().putInt("mlevel", mlevel).apply();
+                mBtn.setText(levelText());
+            }
+        });
+        mr.addView(weight(mBtn));
+        l.addView(mr);
 
         LinearLayout r1 = new LinearLayout(this);
         r1.addView(weight(btn("⏪ 10ث", ctl("back"))));
@@ -116,10 +191,19 @@ public class SenderActivity extends Activity {
         r2.addView(weight(btn("صفحة ▶", ctl("next"))));
         l.addView(r2);
 
+        qBtn = btn("🔍 الجودة: عالية", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                hq = !hq;
+                qBtn.setText(hq ? "🔍 الجودة: عالية" : "🔍 الجودة: عادية");
+                sendCmd(hq ? "qh" : "ql");
+            }
+        });
+        l.addView(qBtn);
+
         status = new TextView(this);
         status.setTextSize(18);
         status.setPadding(0, 24, 0, 24);
-        status.setText(ip != null ? "آخر TV Box: " + ip : "دخل الكود واضغط اتصل");
+        status.setText("دخل الكود واضغط اتصل");
         l.addView(status);
 
         l.addView(btn("تغيير الوضع", new View.OnClickListener() {
@@ -133,17 +217,6 @@ public class SenderActivity extends Activity {
         ScrollView sv = new ScrollView(this);
         sv.addView(l);
         setContentView(sv);
-    }
-
-    private Button weight(Button b) {
-        b.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-        return b;
-    }
-
-    private View.OnClickListener ctl(final String cmd) {
-        return new View.OnClickListener() {
-            @Override public void onClick(View v) { sendCmd(cmd); }
-        };
     }
 
     private void setStatus(final String s) {
@@ -211,7 +284,7 @@ public class SenderActivity extends Activity {
 
     private String code() {
         String c = codeF.getText().toString().trim();
-        sp.edit().putString("code", c).apply();
+        sp.edit().putString("paircode", c).apply();
         return c;
     }
 
@@ -234,7 +307,7 @@ public class SenderActivity extends Activity {
                     sp.edit().putString("ip", found).apply();
                     setStatus("✅ متصل بـ TV Box (" + found + ")");
                 } else {
-                    setStatus("❌ ما لقيتش TV Box. تأكد: نفس الواي فاي، الكود صحيح، التطبيق مفتوح في TV Box. أو دخل IP.");
+                    setStatus("❌ ما لقيتش TV Box. تأكد: نفس الواي فاي، الكود صحيح، التطبيق مفتوح في TV Box.");
                 }
             }
         }).start();
@@ -258,30 +331,153 @@ public class SenderActivity extends Activity {
         }).start();
     }
 
-    private void pick() {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"video/*", "image/*", "application/pdf"});
-        startActivityForResult(i, 1);
+    // ---------------- apps + mirroring ----------------
+    private View.OnClickListener openL(final String app) {
+        return new View.OnClickListener() {
+            @Override public void onClick(View v) { sendOpen(app); }
+        };
     }
 
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req == 1 && res == RESULT_OK && data != null && data.getData() != null) sendUri(data.getData());
+    private String levelText() {
+        return mlevel == 0 ? "📺 دقة الشاشة: منخفضة (854)"
+                : mlevel == 2 ? "📺 دقة الشاشة: عالية (1920)" : "📺 دقة الشاشة: عادية (1280)";
     }
 
-    private void sendUri(final Uri uri) {
-        final String c = sp.getString("code", "");
-        final String codeNow = codeF != null && !codeF.getText().toString().trim().isEmpty()
-                ? codeF.getText().toString().trim() : c;
+    private void sendOpen(final String app) {
+        final String c = code();
+        final String q = qF.getText().toString().trim();
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
                     bindWifi();
-                    if (codeNow.isEmpty()) { setStatus("دخل الكود أولا"); return; }
+                    for (int attempt = 0; attempt < 2; attempt++) {
+                        if (ip == null) ip = discover(c, 5000);
+                        if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                        try {
+                            int rc = get(ip, c, "/open?app=" + app + "&q=" + URLEncoder.encode(q, "UTF-8"));
+                            setStatus(rc == 200 ? "✅ كيتفتح في TV Box (خاصو إنترنت)" : "❌ خطأ " + rc);
+                            return;
+                        } catch (Exception e) {
+                            ip = null;
+                        }
+                    }
+                    setStatus("❌ فشل. اضغط اتصل.");
+                } catch (Exception e) {
+                    setStatus("❌ " + e.getMessage());
+                }
+            }
+        }).start();
+    }
 
+    private void startMirror() {
+        try {
+            MediaProjectionManager m = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            startActivityForResult(m.createScreenCaptureIntent(), 9);
+        } catch (Exception e) {
+            setStatus("❌ " + e.getMessage());
+        }
+    }
+
+    private void stopMirror() {
+        try { startService(new Intent(this, ScreenService.class).setAction("stop")); } catch (Exception ignored) {}
+        sendCmd("stop");
+        setStatus("تم إيقاف عرض الشاشة");
+    }
+
+    private void beginMirror(final int rc, final Intent data) {
+        final String c = code();
+        setStatus("كنبدا عرض الشاشة...");
+        new Thread(new Runnable() {
+            @Override public void run() {
+                bindWifi();
+                if (ip != null) {
+                    try { if (get(ip, c, "/ping") != 200) ip = null; } catch (Exception e) { ip = null; }
+                }
+                if (ip == null) ip = discover(c, 5000);
+                final String host = ip;
+                if (host == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        Intent s = new Intent(SenderActivity.this, ScreenService.class);
+                        s.putExtra("rc", rc);
+                        s.putExtra("data", data);
+                        s.putExtra("ip", host);
+                        s.putExtra("code", c);
+                        s.putExtra("level", mlevel);
+                        if (Build.VERSION.SDK_INT >= 26) startForegroundService(s); else startService(s);
+                        setStatus("✅ عرض الشاشة شغال. استعمل الهاتف عادي.");
+                        moveTaskToBack(true);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    // ---------------- YouTube link ----------------
+    private void pasteLink() {
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null && cm.hasPrimaryClip()) {
+                ClipData cd = cm.getPrimaryClip();
+                if (cd != null && cd.getItemCount() > 0) {
+                    CharSequence t = cd.getItemAt(0).getText();
+                    if (t != null) { sendLinkText(t.toString()); return; }
+                }
+            }
+        } catch (Exception ignored) {}
+        setStatus("ما لقيتش رابط منسوخ. انسخ رابط يوتيوب أولا.");
+    }
+
+    private void sendLinkText(String text) {
+        Matcher m = Pattern.compile("https?://\\S+").matcher(text);
+        if (!m.find()) { setStatus("ما لقيتش رابط"); return; }
+        final String url = m.group();
+        final String c = code();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    bindWifi();
+                    for (int attempt = 0; attempt < 2; attempt++) {
+                        if (ip == null) ip = discover(c, 5000);
+                        if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                        try {
+                            int rc = get(ip, c, "/link?u=" + URLEncoder.encode(url, "UTF-8"));
+                            setStatus(rc == 200 ? "✅ تبعث الرابط لـ TV Box" : "❌ خطأ " + rc);
+                            return;
+                        } catch (Exception e) {
+                            ip = null;
+                        }
+                    }
+                    setStatus("❌ فشل الإرسال. اضغط اتصل.");
+                } catch (Exception e) {
+                    setStatus("❌ " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
+    // ---------------- files ----------------
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == 9) {
+            if (res == RESULT_OK && data != null) beginMirror(res, data);
+            else setStatus("تلغى عرض الشاشة");
+            return;
+        }
+        if (res == RESULT_OK && data != null && data.getData() != null) {
+            String t = req == 1 ? "video" : req == 2 ? "image" : req == 3 ? "pdf" : null;
+            sendUri(data.getData(), t);
+        }
+    }
+
+    private void sendUri(final Uri uri, final String forcedType) {
+        final String codeNow = codeF != null && !codeF.getText().toString().trim().isEmpty()
+                ? codeF.getText().toString().trim() : sp.getString("paircode", Net.DEFAULT_CODE);
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    bindWifi();
                     String name = "file";
                     long size = -1;
                     Cursor cur = getContentResolver().query(uri, null, null, null, null);
@@ -302,9 +498,12 @@ public class SenderActivity extends Activity {
 
                     String mime = getContentResolver().getType(uri);
                     String lower = name.toLowerCase();
-                    String type = "video";
-                    if ((mime != null && mime.startsWith("image")) || lower.matches(".*\\.(jpg|jpeg|png|webp|gif|bmp)$")) type = "image";
-                    else if ("application/pdf".equals(mime) || lower.endsWith(".pdf")) type = "pdf";
+                    String type = forcedType;
+                    if (type == null) {
+                        type = "video";
+                        if ((mime != null && mime.startsWith("image")) || lower.matches(".*\\.(jpg|jpeg|png|webp|gif|bmp)$")) type = "image";
+                        else if ("application/pdf".equals(mime) || lower.endsWith(".pdf")) type = "pdf";
+                    }
                     if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : type.equals("image") ? ".jpg" : ".mp4";
 
                     for (int attempt = 0; attempt < 2; attempt++) {
@@ -337,7 +536,7 @@ public class SenderActivity extends Activity {
         c.setFixedLengthStreamingMode(size);
         c.setRequestProperty("X-Code", code);
         c.setConnectTimeout(5000);
-        c.setReadTimeout(120000);
+        c.setReadTimeout(180000);
         InputStream in = getContentResolver().openInputStream(uri);
         OutputStream o = c.getOutputStream();
         byte[] buf = new byte[65536];
