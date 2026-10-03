@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
 import android.content.SharedPreferences;
@@ -72,6 +73,18 @@ public class ReceiverActivity extends Activity {
     private String curType;
     private int quality = 2;
     private float zoom = 1f, panX = 0f, panY = 0f;
+    private FillVideoView fillView;
+
+    // VideoView كيملا الشاشة كاملة (ماشي غير الحجم الأصلي)
+    private static class FillVideoView extends VideoView {
+        boolean fill = true;
+        FillVideoView(Context c) { super(c); }
+        @Override
+        protected void onMeasure(int w, int h) {
+            if (fill) setMeasuredDimension(getDefaultSize(0, w), getDefaultSize(0, h));
+            else super.onMeasure(w, h);
+        }
+    }
     private final AtomicInteger streamId = new AtomicInteger();
 
     @Override
@@ -118,7 +131,8 @@ public class ReceiverActivity extends Activity {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
-        video = new VideoView(this);
+        fillView = new FillVideoView(this);
+        video = fillView;
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
 
@@ -403,7 +417,7 @@ public class ReceiverActivity extends Activity {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
         int h = root.getHeight() > 0 ? root.getHeight() : 1080;
-        h = Math.min(h * 2, quality == 2 ? 3000 : 1600);
+        h = Math.min((int) (h * 2.5f * Math.max(1f, zoom)), quality == 2 ? 4096 : 1600);
         float scale = (float) h / pg.getHeight();
         int w = Math.max(1, (int) (pg.getWidth() * scale));
         Bitmap bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
@@ -419,7 +433,7 @@ public class ReceiverActivity extends Activity {
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(f.getPath(), o);
         int s = 1;
-        int cap = quality == 2 ? 3840 : 1920;
+        int cap = quality == 2 ? 4096 : 1920;
         while (o.outWidth / s > cap || o.outHeight / s > cap) s *= 2;
         o = new BitmapFactory.Options();
         o.inSampleSize = s;
@@ -497,11 +511,16 @@ public class ReceiverActivity extends Activity {
                 quality = 1;
                 reload();
                 break;
+            case "vfill":
+                if (fillView != null) { fillView.fill = !fillView.fill; fillView.requestLayout(); }
+                break;
             case "zin":
                 zoom = Math.min(6f, zoom * 1.25f); applyZoom();
+                if (pdf != null) renderPage();
                 break;
             case "zout":
                 zoom = zoom / 1.25f; applyZoom();
+                if (pdf != null) renderPage();
                 break;
             case "zreset":
                 resetZoom();
