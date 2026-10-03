@@ -42,6 +42,14 @@ public class ScreenService extends Service {
     private boolean cleaning;
     private long last;
     private Bitmap bmp;
+    private int level = 1;
+    private boolean compat;
+    private int jq = 62;
+    private int dpi = 320;
+    private long lastCheck;
+    private final ImageReader.OnImageAvailableListener frameListener = new ImageReader.OnImageAvailableListener() {
+        @Override public void onImageAvailable(ImageReader r) { onFrame(r); }
+    };
 
     @Override
     public IBinder onBind(Intent i) { return null; }
@@ -53,19 +61,28 @@ public class ScreenService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        if ("level".equals(in.getAction())) {
+            if (!running || handler == null) { stopSelf(); return START_NOT_STICKY; }
+            level = in.getIntExtra("level", 1);
+            handler.post(new Runnable() {
+                @Override public void run() { reconfigure(false); }
+            });
+            return START_NOT_STICKY;
+        }
         startForegroundNotif();
         if (running) cleanup();
         final int rc = in.getIntExtra("rc", 0);
         final Intent data = in.getParcelableExtra("data");
         final String host = in.getStringExtra("ip");
         final String code = in.getStringExtra("code");
-        final int level = in.getIntExtra("level", 1);
+        level = in.getIntExtra("level", 1);
+        compat = in.getBooleanExtra("compat", false);
         running = true;
         ht = new HandlerThread("tvlink-cap");
         ht.start();
         handler = new Handler(ht.getLooper());
         handler.post(new Runnable() {
-            @Override public void run() { setup(rc, data, host, code, level); }
+            @Override public void run() { setup(rc, data, host, code); }
         });
         return START_NOT_STICKY;
     }
@@ -92,7 +109,7 @@ public class ScreenService extends Service {
         }
     }
 
-    private void setup(int rc, Intent data, String host, String code, int level) {
+    private void setup(int rc, Intent data, String host, String code) {
         try {
             sock = new Socket();
             sock.connect(new InetSocketAddress(host, Net.HTTP_PORT), 5000);
@@ -106,34 +123,80 @@ public class ScreenService extends Service {
             projection.registerCallback(new MediaProjection.Callback() {
                 @Override public void onStop() { stopAll(); }
             }, handler);
-
-            DisplayMetrics dm = new DisplayMetrics();
-            ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
-            int longSide = level == 0 ? 854 : level == 2 ? 1920 : 1280;
-            float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
-            final int w = Math.max(2, Math.round(dm.widthPixels * sc));
-            final int h = Math.max(2, Math.round(dm.heightPixels * sc));
-            final int jq = level == 0 ? 50 : level == 2 ? 75 : 62;
-
-            reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
-            vd = projection.createVirtualDisplay("tvlink", w, h, dm.densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
-            reader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
-                @Override public void onImageAvailable(ImageReader r) { onFrame(r, w, h, jq); }
-            }, handler);
+            reconfigure(true);
         } catch (Exception e) {
             stopAll();
         }
     }
 
-    private void onFrame(ImageReader r, int w, int h, int jq) {
+    // كيحسب الحجم من دوران الشاشة الحالي والدقة المختارة، وكيطبقو بلا ما يوقف العرض
+    private void reconfigure(boolean initial) {
+        if (!running || projection == null) return;
+        try {
+            DisplayMetrics dm = new DisplayMetrics();
+            ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
+            dpi = dm.densityDpi;
+            int longSide = level == 0 ? 854 : level == 1 ? 1280 : 2400;
+            if (compat && longSide > 1280) longSide = 1280;
+            float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
+            int al = compat ? 16 : 2;
+            int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
+            int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
+            jq = level == 0 ? 50 : level == 1 ? 62 : 80;
+
+            ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, compat ? 3 : 2);
+            nr.setOnImageAvailableListener(frameListener, handler);
+            if (vd == null) {
+                vd = projection.createVirtualDisplay("tvlink", nw, nh, dpi,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, nr.getSurface(), null, handler);
+                if (vd == null) throw new IllegalStateException("no display");
+            } else {
+                vd.resize(nw, nh, dpi);
+                vd.setSurface(nr.getSurface());
+            }
+            ImageReader old = reader;
+            reader = nr;
+            bmp = null;
+            if (old != null) {
+                try { old.setOnImageAvailableListener(null, null); } catch (Exception ignored) {}
+                try { old.close(); } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            if (initial && !compat) {
+                // أول محاولة فشلت: نعاودو بوضع التوافق
+                compat = true;
+                try { if (vd != null) vd.release(); } catch (Exception ignored) {}
+                vd = null;
+                reconfigure(true);
+            } else {
+                stopAll();
+            }
+        }
+    }
+
+    private void onFrame(ImageReader r) {
         Image img = null;
         try {
+            long now = SystemClock.uptimeMillis();
+            if (now - lastCheck > 400) {
+                lastCheck = now;
+                DisplayMetrics dm = new DisplayMetrics();
+                ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
+                boolean land = dm.widthPixels > dm.heightPixels;
+                if (land != (r.getWidth() > r.getHeight())) {
+                    Image t = r.acquireLatestImage();
+                    if (t != null) t.close();
+                    reconfigure(false);
+                    return;
+                }
+            }
             img = r.acquireLatestImage();
             if (img == null || !running) return;
             long wait = 70 - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();
+            int w = r.getWidth();
+            int h = r.getHeight();
             Image.Plane pl = img.getPlanes()[0];
             ByteBuffer buf = pl.getBuffer();
             int bw = pl.getRowStride() / pl.getPixelStride();

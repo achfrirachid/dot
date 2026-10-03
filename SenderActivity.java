@@ -19,6 +19,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -50,6 +51,8 @@ public class SenderActivity extends Activity {
     private EditText qF;
     private Button mBtn;
     private int mlevel = 1;
+    private boolean compat = false, autoRot = true;
+    private Button cBtn, rBtn;
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile String ip;
@@ -60,14 +63,24 @@ public class SenderActivity extends Activity {
         sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         ip = sp.getString("ip", null);
         mlevel = sp.getInt("mlevel", 1);
+        compat = sp.getBoolean("compat", false);
+        autoRot = sp.getBoolean("autorot", true);
+        if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
         bindWifi();
         buildUi();
+        applyAutoRotate();
         Intent in = getIntent();
         if (in != null && Intent.ACTION_SEND.equals(in.getAction())) {
             handle(in);
         } else {
             connect();   // ربط تلقائي بالكود المحفوظ
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        applyAutoRotate();
     }
 
     @Override
@@ -151,18 +164,6 @@ public class SenderActivity extends Activity {
         pk.addView(weight(btn("📄 PDF", pickL("application/pdf", 3))));
         l.addView(pk);
 
-        l.addView(btn("▶ يوتيوب: الصق الرابط (يحتاج TV Box فيه إنترنت)", new View.OnClickListener() {
-            @Override public void onClick(View v) { pasteLink(); }
-        }));
-
-        qF = new EditText(this);
-        qF.setHint("🔎 كلمة البحث (اختياري) لليوتيوب / الفيسبوك");
-        l.addView(qF);
-        LinearLayout ap = new LinearLayout(this);
-        ap.addView(weight(btn("▶ يوتيوب", openL("youtube"))));
-        ap.addView(weight(btn("📘 فيسبوك", openL("facebook"))));
-        l.addView(ap);
-
         l.addView(btn("📱 عرض شاشة الهاتف على TV Box", new View.OnClickListener() {
             @Override public void onClick(View v) { startMirror(); }
         }));
@@ -175,10 +176,49 @@ public class SenderActivity extends Activity {
                 mlevel = (mlevel + 1) % 3;
                 sp.edit().putInt("mlevel", mlevel).apply();
                 mBtn.setText(levelText());
+                // تطبيق الدقة مباشرة على العرض الشغال
+                try { startService(new Intent(SenderActivity.this, ScreenService.class)
+                        .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}
             }
         });
         mr.addView(weight(mBtn));
         l.addView(mr);
+
+        cBtn = btn(compatText(), new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                compat = !compat;
+                sp.edit().putBoolean("compat", compat).apply();
+                cBtn.setText(compatText());
+                setStatus(compat ? "وضع التوافق مفعل. وقف العرض وبداه من جديد." : "وضع التوافق ملغى. وقف العرض وبداه من جديد.");
+            }
+        });
+        l.addView(cBtn);
+
+        rBtn = btn(rotText(), new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                autoRot = !autoRot;
+                sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").apply();
+                rBtn.setText(rotText());
+                applyAutoRotate();
+            }
+        });
+        l.addView(rBtn);
+
+        TextView zt = new TextView(this);
+        zt.setText("🔍 تكبير الصورة / PDF");
+        zt.setGravity(Gravity.CENTER);
+        l.addView(zt);
+        LinearLayout z1 = new LinearLayout(this);
+        z1.addView(weight(btn("➖", ctl("zout"))));
+        z1.addView(weight(btn("⟲ 1x", ctl("zreset"))));
+        z1.addView(weight(btn("➕", ctl("zin"))));
+        l.addView(z1);
+        LinearLayout z2 = new LinearLayout(this);
+        z2.addView(weight(btn("◀", ctl("pl"))));
+        z2.addView(weight(btn("▲", ctl("pu"))));
+        z2.addView(weight(btn("▼", ctl("pd"))));
+        z2.addView(weight(btn("▶", ctl("pr"))));
+        l.addView(z2);
 
         LinearLayout r1 = new LinearLayout(this);
         r1.addView(weight(btn("⏪ 10ث", ctl("back"))));
@@ -343,6 +383,40 @@ public class SenderActivity extends Activity {
                 : mlevel == 2 ? "📺 دقة الشاشة: عالية (1920)" : "📺 دقة الشاشة: عادية (1280)";
     }
 
+    private String compatText() {
+        return compat ? "🛠 وضع التوافق (هواتف قديمة/Redmi/Samsung): مفعل" : "🛠 وضع التوافق (هواتف قديمة/Redmi/Samsung): ملغى";
+    }
+
+    private String rotText() {
+        return autoRot ? "🔄 التدوير التلقائي: مفعل (اضغط للإلغاء)" : "🔄 التدوير التلقائي: ملغى (اضغط للتفعيل)";
+    }
+
+    // كيفعل auto-rotate فالهاتف بوحدو، وكيرجعو لحالتو الأصلية إلا تلغات الخاصية
+    private void applyAutoRotate() {
+        try {
+            boolean can = Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(this);
+            if (autoRot) {
+                if (!can) {
+                    if (!sp.getBoolean("rot_asked", false)) {
+                        sp.edit().putBoolean("rot_asked", true).apply();
+                        startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                                Uri.parse("package:" + getPackageName())));
+                    }
+                    return;
+                }
+                if (!sp.contains("rot_prev")) {
+                    sp.edit().putInt("rot_prev", Settings.System.getInt(getContentResolver(),
+                            Settings.System.ACCELEROMETER_ROTATION, 0)).apply();
+                }
+                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 1);
+            } else if (can && sp.contains("rot_prev")) {
+                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION,
+                        sp.getInt("rot_prev", 0));
+                sp.edit().remove("rot_prev").apply();
+            }
+        } catch (Exception ignored) {}
+    }
+
     private void sendOpen(final String app) {
         final String c = code();
         final String q = qF.getText().toString().trim();
@@ -404,6 +478,7 @@ public class SenderActivity extends Activity {
                         s.putExtra("ip", host);
                         s.putExtra("code", c);
                         s.putExtra("level", mlevel);
+                        s.putExtra("compat", compat);
                         if (Build.VERSION.SDK_INT >= 26) startForegroundService(s); else startService(s);
                         setStatus("✅ عرض الشاشة شغال. استعمل الهاتف عادي.");
                         moveTaskToBack(true);

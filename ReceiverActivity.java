@@ -71,6 +71,7 @@ public class ReceiverActivity extends Activity {
     private File curFile;
     private String curType;
     private int quality = 2;
+    private float zoom = 1f, panX = 0f, panY = 0f;
     private final AtomicInteger streamId = new AtomicInteger();
 
     @Override
@@ -362,6 +363,7 @@ public class ReceiverActivity extends Activity {
         killStream();
         front();
         stopMedia();
+        resetZoom();
         curFile = f;
         curType = type;
         File[] old = f.getParentFile().listFiles();
@@ -436,6 +438,7 @@ public class ReceiverActivity extends Activity {
     }
 
     private void stopMedia() {
+        try { resetZoom(); } catch (Exception ignored) {}
         try { video.stopPlayback(); } catch (Exception ignored) {}
         video.setVisibility(View.GONE);
         image.setImageDrawable(null);
@@ -453,6 +456,20 @@ public class ReceiverActivity extends Activity {
         showing = false;
         idle.setVisibility(View.VISIBLE);
     }
+
+    private void applyZoom() {
+        if (zoom <= 1f) { zoom = 1f; panX = 0f; panY = 0f; }
+        float mx = Math.max(0f, (zoom - 1f) * root.getWidth() / 2f);
+        float my = Math.max(0f, (zoom - 1f) * root.getHeight() / 2f);
+        panX = Math.max(-mx, Math.min(mx, panX));
+        panY = Math.max(-my, Math.min(my, panY));
+        image.setScaleX(zoom);
+        image.setScaleY(zoom);
+        image.setTranslationX(panX);
+        image.setTranslationY(panY);
+    }
+
+    private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); }
 
     private void control(String cmd) {
         if (cmd == null) return;
@@ -480,11 +497,32 @@ public class ReceiverActivity extends Activity {
                 quality = 1;
                 reload();
                 break;
+            case "zin":
+                zoom = Math.min(6f, zoom * 1.25f); applyZoom();
+                break;
+            case "zout":
+                zoom = zoom / 1.25f; applyZoom();
+                break;
+            case "zreset":
+                resetZoom();
+                break;
+            case "pl":
+                panX += root.getWidth() * 0.15f; applyZoom();
+                break;
+            case "pr":
+                panX -= root.getWidth() * 0.15f; applyZoom();
+                break;
+            case "pu":
+                panY += root.getHeight() * 0.15f; applyZoom();
+                break;
+            case "pd":
+                panY -= root.getHeight() * 0.15f; applyZoom();
+                break;
             case "next":
-                if (pdf != null && page < pdf.getPageCount() - 1) { page++; renderPage(); }
+                if (pdf != null && page < pdf.getPageCount() - 1) { page++; resetZoom(); renderPage(); }
                 break;
             case "prev":
-                if (pdf != null && page > 0) { page--; renderPage(); }
+                if (pdf != null && page > 0) { page--; resetZoom(); renderPage(); }
                 break;
         }
     }
