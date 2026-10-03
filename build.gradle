@@ -1,0 +1,25 @@
+plugins { id 'com.android.application' version '8.5.0' }
+
+layout.buildDirectory.set(file('/tmp/tvlink-build'))
+
+android {
+    namespace 'com.tvlink.app'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.tvlink.app'
+        minSdk 23
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['.']
+        }
+    }
+}
