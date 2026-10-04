@@ -14,6 +14,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.pdf.PdfRenderer;
+import android.media.AudioManager;
 import android.media.ExifInterface;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -60,7 +61,7 @@ public class ReceiverActivity extends Activity {
 
     private FrameLayout root;
     private VideoView video;
-    private ImageView image;
+    private FillImageView image;
     private LinearLayout idle;
     private TextView info, codeView;
 
@@ -136,7 +137,7 @@ public class ReceiverActivity extends Activity {
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
 
-        image = new ImageView(this);
+        image = new FillImageView(this);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         root.addView(image, new FrameLayout.LayoutParams(-1, -1));
         image.setVisibility(View.GONE);
@@ -380,6 +381,7 @@ public class ReceiverActivity extends Activity {
         resetZoom();
         curFile = f;
         curType = type;
+        image.live = false;
         File[] old = f.getParentFile().listFiles();
         if (old != null) for (File o : old) if (!o.equals(f)) o.delete();
         idle.setVisibility(View.GONE);
@@ -483,7 +485,7 @@ public class ReceiverActivity extends Activity {
         image.setTranslationY(panY);
     }
 
-    private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); }
+    private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); image.refreshQuality(); }
 
     private void control(String cmd) {
         if (cmd == null) return;
@@ -516,11 +518,11 @@ public class ReceiverActivity extends Activity {
                 break;
             case "zin":
                 zoom = Math.min(6f, zoom * 1.25f); applyZoom();
-                if (pdf != null) renderPage();
+                if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zout":
                 zoom = zoom / 1.25f; applyZoom();
-                if (pdf != null) renderPage();
+                if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zreset":
                 resetZoom();
@@ -532,10 +534,25 @@ public class ReceiverActivity extends Activity {
                 panX -= root.getWidth() * 0.15f; applyZoom();
                 break;
             case "pu":
-                panY += root.getHeight() * 0.15f; applyZoom();
+                if (!image.scrollContent(-root.getHeight() * 0.25f)) { panY += root.getHeight() * 0.15f; applyZoom(); }
                 break;
             case "pd":
-                panY -= root.getHeight() * 0.15f; applyZoom();
+                if (!image.scrollContent(root.getHeight() * 0.25f)) { panY -= root.getHeight() * 0.15f; applyZoom(); }
+                break;
+            case "imode":
+                image.cycleMode();
+                break;
+            case "volup":
+                adjustVolume(AudioManager.ADJUST_RAISE);
+                break;
+            case "voldown":
+                adjustVolume(AudioManager.ADJUST_LOWER);
+                break;
+            case "mute":
+                adjustVolume(AudioManager.ADJUST_TOGGLE_MUTE);
+                break;
+            case "volmax":
+                setMaxVolume();
                 break;
             case "next":
                 if (pdf != null && page < pdf.getPageCount() - 1) { page++; resetZoom(); renderPage(); }
@@ -544,6 +561,22 @@ public class ReceiverActivity extends Activity {
                 if (pdf != null && page > 0) { page--; resetZoom(); renderPage(); }
                 break;
         }
+    }
+
+    // رفع / خفض صوت TV Box من الهاتف
+    private void adjustVolume(int dir) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            am.adjustStreamVolume(AudioManager.STREAM_MUSIC, dir, AudioManager.FLAG_SHOW_UI);
+        } catch (Exception ignored) {}
+    }
+
+    private void setMaxVolume() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC,
+                    am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), AudioManager.FLAG_SHOW_UI);
+        } catch (Exception ignored) {}
     }
 
     private void killStream() { streamId.incrementAndGet(); }
@@ -563,6 +596,7 @@ public class ReceiverActivity extends Activity {
                 front();
                 stopMedia();
                 curType = "stream";
+                image.live = true;
                 idle.setVisibility(View.GONE);
                 image.setVisibility(View.VISIBLE);
                 showing = true;
