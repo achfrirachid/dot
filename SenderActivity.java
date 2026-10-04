@@ -22,6 +22,8 @@ import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -118,6 +120,41 @@ public class SenderActivity extends Activity {
         return new View.OnClickListener() {
             @Override public void onClick(View v) { sendCmd(cmd); }
         };
+    }
+
+    // زر صوت: ضغطة وحدة = خطوة، والضغط الطويل كيعاود (للأزرار + و −)
+    private Button volBtn(String text, final String cmd, final boolean repeat) {
+        final Runnable[] loop = new Runnable[1];
+        loop[0] = new Runnable() {
+            @Override public void run() { sendCmd(cmd); ui.postDelayed(loop[0], 300); }
+        };
+        Button bt = new Button(this);
+        bt.setText(text);
+        bt.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        v.setPressed(true);
+                        if (repeat) loop[0].run(); else sendCmd(cmd);
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        v.setPressed(false);
+                        ui.removeCallbacks(loop[0]);
+                        return true;
+                }
+                return false;
+            }
+        });
+        return bt;
+    }
+
+    // أزرار الصوت ديال الهاتف كتتحكم فصوت TV Box ملي تكون متصل وهاد الشاشة مفتوحة
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_UP) { sendCmd("volup"); return true; }
+        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) { sendCmd("voldown"); return true; }
+        return super.onKeyDown(keyCode, event);
     }
 
     private View.OnClickListener pickL(final String mime, final int req) {
@@ -239,6 +276,22 @@ public class SenderActivity extends Activity {
             }
         });
         l.addView(qBtn);
+
+        // ---- صوت TV Box (رفع / خفض / كتم / أقصى) ----
+        TextView vt = new TextView(this);
+        vt.setText("🔊 صوت TV Box");
+        vt.setGravity(Gravity.CENTER);
+        vt.setPadding(0, 16, 0, 0);
+        l.addView(vt);
+        LinearLayout vr = new LinearLayout(this);
+        vr.addView(weight(volBtn("🔉 −", "voldown", true)));
+        vr.addView(weight(volBtn("🔇", "mute", false)));
+        vr.addView(weight(volBtn("🔊 +", "volup", true)));
+        vr.addView(weight(volBtn("MAX", "volmax", false)));
+        l.addView(vr);
+
+        // ---- شكل عرض الصورة / الورقة / PDF ----
+        l.addView(btn("🖼 شكل الصورة: تلقائي ← كاملة ← عرض كامل ← تغطية", ctl("imode")));
 
         status = new TextView(this);
         status.setTextSize(18);
