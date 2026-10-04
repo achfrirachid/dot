@@ -47,6 +47,8 @@ import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -441,6 +443,30 @@ public class SenderActivity extends Activity {
         c4.addView(full(qBtn));
         l.addView(c4);
 
+        // 5) ضبط الصورة والألوان والكتابة (كيتحفظ فـ TV Box ويتطبق تلقائيا)
+        LinearLayout c5 = card("🎛 ضبط الصورة (يتحفظ فـ TV Box)", 0xE6E3F2FD, 0xFF64B5F6);
+        c5.addView(levelRow("📐 الحجم (10 = ملء الشاشة)", "fit", 1, 10, 10));
+        c5.addView(levelRow("☀️ السطوع", "bri", 1, 10, 5));
+        c5.addView(levelRow("◐ التباين", "con", 1, 10, 5));
+        c5.addView(levelRow("🎨 الألوان", "sat", 1, 10, 5));
+        c5.addView(levelRow("🖋 غلظة الكتابة (0 = عادية)", "txt", 0, 10, 0));
+        c5.addView(levelRow("🔎 حدة الصورة (0 = بدون)", "sha", 0, 10, 0));
+        LinearLayout pr = row();
+        pr.addView(w(sbtn("📄 وضع الامتحان", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
+            @Override public void onClick(View v) { preset(10, 5, 7, 5, 4, 6); }
+        })));
+        pr.addView(w(sbtn("🎬 وضع الصور/ألوان", 0xFFFFE0B2, 0xFFF59E0B, INK, new View.OnClickListener() {
+            @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
+        })));
+        c5.addView(pr);
+        c5.addView(full(sbtn("↺ رجوع للقيم الافتراضية", 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                preset(10, 5, 5, 5, 0, 0);
+            }
+        })));
+        c5.addView(full(sbtn("🔊 اختبار الصوت (يبين المخرج)", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("beep"))));
+        l.addView(c5);
+
         l.addView(full(sbtn("⚙️ تغيير الوضع", 0xFF2F4B7C, 0xFF2F4B7C, 0xFFFFFFFF, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 sp.edit().remove("mode").apply();
@@ -493,6 +519,58 @@ public class SenderActivity extends Activity {
 
     private void setStatus(final String s) {
         ui.post(new Runnable() { @Override public void run() { status.setText(s); } });
+    }
+
+    // ---------------- مستويات الضبط ----------------
+    private final Map<String, TextView> lvlViews = new HashMap<String, TextView>();
+    private final Map<String, int[]> lvlRange = new HashMap<String, int[]>();
+
+    private void setLevel(String key, int v) {
+        int[] rg = lvlRange.get(key);
+        v = Math.max(rg[0], Math.min(rg[1], v));
+        sp.edit().putInt("s_" + key, v).apply();
+        lvlViews.get(key).setText(v + "/" + rg[1]);
+        sendCmd(key + ":" + v);
+    }
+
+    private void preset(int fit, int bri, int con, int sat, int txt, int sha) {
+        setLevel("fit", fit); setLevel("bri", bri); setLevel("con", con);
+        setLevel("sat", sat); setLevel("txt", txt); setLevel("sha", sha);
+    }
+
+    private View levelRow(String label, final String key, final int min, final int max, final int def) {
+        lvlRange.put(key, new int[]{min, max});
+        final int[] cur = {sp.getInt("s_" + key, def)};
+        LinearLayout r = row();
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        TextView lb = new TextView(this);
+        lb.setText(label);
+        lb.setTextSize(14);
+        lb.setTextColor(0xFF2D2D3A);
+        lb.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1.5f));
+        r.addView(lb);
+        Button m = compact(sbtn("➖", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
+        TextView val = new TextView(this);
+        val.setText(cur[0] + "/" + max);
+        val.setTextSize(16);
+        val.setTypeface(null, Typeface.BOLD);
+        val.setGravity(Gravity.CENTER);
+        val.setTextColor(0xFF1E3A8A);
+        lvlViews.put(key, val);
+        Button p = compact(sbtn("➕", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
+        m.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.7f));
+        val.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.8f));
+        p.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.7f));
+        m.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) - 1); }
+        });
+        p.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) + 1); }
+        });
+        r.addView(m);
+        r.addView(val);
+        r.addView(p);
+        return r;
     }
 
     // ---------------- network ----------------

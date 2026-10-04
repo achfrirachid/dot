@@ -12,6 +12,15 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Paint;
+import android.graphics.PixelFormat;
+import android.renderscript.Allocation;
+import android.renderscript.Element;
+import android.renderscript.RenderScript;
+import android.renderscript.ScriptIntrinsicConvolve3x3;
+import android.media.ToneGenerator;
 import android.graphics.Matrix;
 import android.graphics.pdf.PdfRenderer;
 import android.media.AudioManager;
@@ -83,6 +92,9 @@ public class ReceiverActivity extends Activity {
     private int quality = 2;
     private float zoom = 1f, panX = 0f, panY = 0f;
     private FillVideoView fillView;
+    // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
+    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 0, lvlSha = 0;
+    private float fit = 1f;
 
     // VideoView كيملا الشاشة كاملة (ماشي غير الحجم الأصلي)
     private static class FillVideoView extends VideoView {
@@ -99,10 +111,18 @@ public class ReceiverActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        getWindow().setFormat(PixelFormat.RGBA_8888);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         code = sp.getString("paircode", Net.DEFAULT_CODE);
+        lvlFit = sp.getInt("l_fit", 10);
+        lvlBri = sp.getInt("l_bri", 5);
+        lvlCon = sp.getInt("l_con", 5);
+        lvlSat = sp.getInt("l_sat", 5);
+        lvlTxt = sp.getInt("l_txt", 0);
+        lvlSha = sp.getInt("l_sha", 0);
         buildUi();
+        applyLevels();
         askOverlay();
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
@@ -428,6 +448,7 @@ public class ReceiverActivity extends Activity {
         curFile = f;
         curType = type;
         image.live = false;
+        image.setMode(FillImageView.FIT);
         File[] old = f.getParentFile().listFiles();
         if (old != null) for (File o : old) if (!o.equals(f)) o.delete();
         idle.setVisibility(View.GONE);
@@ -464,14 +485,21 @@ public class ReceiverActivity extends Activity {
     private void renderPage() {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
-        int h = root.getHeight() > 0 ? root.getHeight() : 1080;
-        h = Math.min((int) (h * 2.5f * Math.max(1f, zoom)), quality == 2 ? 4096 : 1600);
-        float scale = (float) h / pg.getHeight();
+        int rh = root.getHeight() > 0 ? root.getHeight() : 1080;
+        int target = Math.min((int) (rh * Math.max(1f, zoom)), quality == 2 ? 3000 : 1400);
+        int ss = Math.max(target, Math.min(target * 2, quality == 2 ? 3200 : 1400));
+        float scale = (float) ss / pg.getHeight();
         int w = Math.max(1, (int) (pg.getWidth() * scale));
-        Bitmap bm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        Bitmap bm = Bitmap.createBitmap(w, ss, Bitmap.Config.ARGB_8888);
         bm.eraseColor(Color.WHITE);
         pg.render(bm, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
         pg.close();
+        if (ss != target) {
+            // تصغير بدقة (2x -> 1x) باش الكتابة تبقى غليظة وواضحة بلا تقطيع
+            Bitmap sm = Bitmap.createScaledBitmap(bm, Math.max(1, (int) ((long) w * target / ss)), target, true);
+            if (sm != bm) bm.recycle();
+            bm = sm;
+        }
         image.setImageBitmap(bm);
         image.setVisibility(View.VISIBLE);
     }
@@ -496,7 +524,38 @@ public class ReceiverActivity extends Activity {
             m.postRotate(deg);
             bm = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
         }
-        return bm;
+        return sharpen(fitBitmap(bm));
+    }
+
+    // حدة الصورة (للصور الملتقطة بالهاتف: امتحانات، فروض)
+    private Bitmap sharpen(Bitmap bm) {
+        if (bm == null || lvlSha <= 0) return bm;
+        try {
+            float a = lvlSha * 0.1f;
+            RenderScript rs = RenderScript.create(this);
+            Allocation in = Allocation.createFromBitmap(rs, bm);
+            Allocation out = Allocation.createTyped(rs, in.getType());
+            ScriptIntrinsicConvolve3x3 sc = ScriptIntrinsicConvolve3x3.create(rs, Element.U8_4(rs));
+            sc.setCoefficients(new float[]{0, -a, 0, -a, 1f + 4f * a, -a, 0, -a, 0});
+            sc.setInput(in);
+            sc.forEach(out);
+            Bitmap res = Bitmap.createBitmap(bm.getWidth(), bm.getHeight(), Bitmap.Config.ARGB_8888);
+            out.copyTo(res);
+            rs.destroy();
+            return res;
+        } catch (Throwable t) {
+            return bm;
+        }
+    }
+
+    private Bitmap fitBitmap(Bitmap bm) {
+        if (bm == null || root.getWidth() == 0 || root.getHeight() == 0) return bm;
+        float s = Math.min(root.getWidth() * 2.5f / bm.getWidth(), root.getHeight() * 2.5f / bm.getHeight());
+        if (s >= 1f) return bm;
+        Bitmap o = Bitmap.createScaledBitmap(bm, Math.max(1, (int) (bm.getWidth() * s)),
+                Math.max(1, (int) (bm.getHeight() * s)), true);
+        if (o != bm) bm.recycle();
+        return o;
     }
 
     private void stopMedia() {
@@ -525,27 +584,116 @@ public class ReceiverActivity extends Activity {
 
     private void applyZoom() {
         if (zoom <= 1f) { zoom = 1f; panX = 0f; panY = 0f; }
-        float mx = Math.max(0f, (zoom - 1f) * root.getWidth() / 2f);
-        float my = Math.max(0f, (zoom - 1f) * root.getHeight() / 2f);
+        float eff = zoom * fit;
+        float mx = Math.max(0f, (eff - 1f) * root.getWidth() / 2f);
+        float my = Math.max(0f, (eff - 1f) * root.getHeight() / 2f);
         panX = Math.max(-mx, Math.min(mx, panX));
         panY = Math.max(-my, Math.min(my, panY));
-        image.setScaleX(zoom);
-        image.setScaleY(zoom);
+        image.setScaleX(eff);
+        image.setScaleY(eff);
         image.setTranslationX(panX);
         image.setTranslationY(panY);
+        if (video != null) { video.setScaleX(fit); video.setScaleY(fit); }
         if (multi != null) {
-            multi.setScaleX(zoom);
-            multi.setScaleY(zoom);
+            multi.setScaleX(eff);
+            multi.setScaleY(eff);
             multi.setTranslationX(panX);
             multi.setTranslationY(panY);
         }
+    }
+
+    // ---------------- مستويات الحجم / الألوان / الكتابة ----------------
+    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    private void applyLevels() {
+        fit = 0.60f + 0.40f * (lvlFit - 1) / 9f;
+        boolean neutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5 && lvlTxt == 0;
+        if (neutral) {
+            image.setLayerType(View.LAYER_TYPE_NONE, null);
+            multi.setLayerType(View.LAYER_TYPE_NONE, null);
+        } else {
+            ColorMatrix cm = new ColorMatrix();
+            cm.setSaturation(0.5f + 0.1f * lvlSat);
+            float c = 0.5f + 0.1f * lvlCon;
+            float t = 128f * (1f - c) + (lvlBri - 5) * 10f;
+            cm.postConcat(new ColorMatrix(new float[]{
+                    c, 0, 0, 0, t,
+                    0, c, 0, 0, t,
+                    0, 0, c, 0, t,
+                    0, 0, 0, 1, 0}));
+            if (lvlTxt > 0) {
+                // كيغمق الكتابة: الرمادي كيولي أسود، والأبيض كيبقى أبيض
+                float k = 1f + 0.2f * lvlTxt;
+                float o = 255f * 0.8f * (1f - k);
+                cm.postConcat(new ColorMatrix(new float[]{
+                        k, 0, 0, 0, o,
+                        0, k, 0, 0, o,
+                        0, 0, k, 0, o,
+                        0, 0, 0, 1, 0}));
+            }
+            Paint p = new Paint();
+            p.setColorFilter(new ColorMatrixColorFilter(cm));
+            image.setLayerType(View.LAYER_TYPE_HARDWARE, p);
+            multi.setLayerType(View.LAYER_TYPE_HARDWARE, p);
+        }
+        applyZoom();
+    }
+
+    private void levelCmd(String cmd) {
+        String[] kv = cmd.split(":");
+        if (kv.length < 2) return;
+        int n;
+        try { n = Integer.parseInt(kv[1].trim()); } catch (Exception e) { return; }
+        SharedPreferences.Editor ed = getSharedPreferences("tvlink", MODE_PRIVATE).edit();
+        String k = kv[0];
+        if ("fit".equals(k)) { lvlFit = clamp(n, 1, 10); ed.putInt("l_fit", lvlFit); }
+        else if ("bri".equals(k)) { lvlBri = clamp(n, 1, 10); ed.putInt("l_bri", lvlBri); }
+        else if ("con".equals(k)) { lvlCon = clamp(n, 1, 10); ed.putInt("l_con", lvlCon); }
+        else if ("sat".equals(k)) { lvlSat = clamp(n, 1, 10); ed.putInt("l_sat", lvlSat); }
+        else if ("txt".equals(k)) { lvlTxt = clamp(n, 0, 10); ed.putInt("l_txt", lvlTxt); }
+        else if ("sha".equals(k)) {
+            int old = lvlSha;
+            lvlSha = clamp(n, 0, 10);
+            ed.putInt("l_sha", lvlSha);
+            ed.apply();
+            if (old != lvlSha && "image".equals(curType)) reload();
+            return;
+        }
+        else return;
+        ed.apply();
+        applyLevels();
+    }
+
+    // اختبار الصوت + إظهار مخرج الصوت الحالي
+    private void beep() {
+        try {
+            setMaxVolume();
+            new ToneGenerator(AudioManager.STREAM_MUSIC, 100).startTone(ToneGenerator.TONE_DTMF_5, 2500);
+            String out = "؟";
+            if (Build.VERSION.SDK_INT >= 23) {
+                AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                StringBuilder sb = new StringBuilder();
+                for (android.media.AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                    int t = d.getType();
+                    String n = t == 9 ? "HDMI" : (t == 3 || t == 4) ? "3.5mm" : t == 2 ? "سماعة داخلية"
+                            : (t == 7 || t == 8) ? "بلوتوث" : (t == 11 || t == 12) ? "USB" : "نوع " + t;
+                    if (sb.indexOf(n) < 0) { if (sb.length() > 0) sb.append(" + "); sb.append(n); }
+                }
+                if (sb.length() > 0) out = sb.toString();
+            }
+            Toast.makeText(this, "🔊 اختبار الصوت — المخرج: " + out, Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) {}
     }
 
     private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); image.refreshQuality(); }
 
     private void control(String cmd) {
         if (cmd == null) return;
+        if (cmd.indexOf(':') > 0) { levelCmd(cmd); return; }
         switch (cmd) {
+            case "beep":
+                beep();
+                break;
             case "pause":
                 if (video.getVisibility() == View.VISIBLE) {
                     if (video.isPlaying()) video.pause(); else video.start();
