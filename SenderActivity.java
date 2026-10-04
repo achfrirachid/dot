@@ -21,6 +21,12 @@ import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
 import android.text.InputType;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -128,8 +134,7 @@ public class SenderActivity extends Activity {
         loop[0] = new Runnable() {
             @Override public void run() { sendCmd(cmd); ui.postDelayed(loop[0], 300); }
         };
-        Button bt = new Button(this);
-        bt.setText(text);
+        Button bt = compact(sbtn(text, 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
         bt.setOnTouchListener(new View.OnTouchListener() {
             @Override public boolean onTouch(View v, MotionEvent e) {
                 switch (e.getAction()) {
@@ -168,40 +173,194 @@ public class SenderActivity extends Activity {
         };
     }
 
+    // ---------------- تصميم الواجهة (مزوق، بطاقات شفافة، ألوان باستيل) ----------------
+    private final List<ObjectAnimator> anims = new ArrayList<ObjectAnimator>();
+
+    @Override
+    protected void onDestroy() {
+        for (ObjectAnimator a : anims) a.cancel();
+        super.onDestroy();
+    }
+
+    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    private GradientDrawable shape(int fill, int stroke, int radiusDp, int strokeDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(fill);
+        g.setCornerRadius(dp(radiusDp));
+        if (strokeDp > 0) g.setStroke(dp(strokeDp), stroke);
+        return g;
+    }
+
+    private int darker(int c) {
+        float[] hsv = new float[3];
+        Color.colorToHSV(c, hsv);
+        hsv[2] *= 0.85f;
+        return Color.HSVToColor(Color.alpha(c), hsv);
+    }
+
+    private StateListDrawable pill(int fill, int stroke) {
+        StateListDrawable s = new StateListDrawable();
+        s.addState(new int[]{android.R.attr.state_pressed}, shape(darker(fill), stroke, 22, 2));
+        s.addState(new int[]{}, shape(fill, stroke, 22, 2));
+        return s;
+    }
+
+    private Button sbtn(String t, int fill, int stroke, int textColor, View.OnClickListener l) {
+        Button b = new Button(this);
+        b.setText(t);
+        b.setAllCaps(false);
+        b.setTextColor(textColor);
+        b.setTextSize(16);
+        b.setTypeface(null, Typeface.BOLD);
+        b.setBackground(pill(fill, stroke));
+        b.setStateListAnimator(null);
+        b.setPadding(dp(10), dp(12), dp(10), dp(12));
+        b.setMinHeight(0);
+        b.setMinimumHeight(dp(48));
+        if (l != null) b.setOnClickListener(l);
+        return b;
+    }
+
+    private Button compact(Button b) {
+        b.setTextSize(15);
+        b.setPadding(dp(6), dp(6), dp(6), dp(6));
+        b.setMinimumHeight(dp(42));
+        return b;
+    }
+
+    private Button tile(String t, int fill, int stroke, View.OnClickListener l) {
+        Button b = sbtn(t, fill, stroke, 0xFF2D2D3A, l);
+        b.setTextSize(17);
+        b.setMinimumHeight(dp(86));
+        return b;
+    }
+
+    private LinearLayout row() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setPadding(0, dp(3), 0, dp(3));
+        return r;
+    }
+
+    private View w(View v) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    private View full(View v) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(dp(3), dp(4), dp(3), dp(4));
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    private void field(EditText e) {
+        e.setBackground(shape(0xFFFFFFFF, 0xFFCBD5E1, 16, 1));
+        e.setPadding(dp(14), dp(10), dp(14), dp(10));
+        e.setGravity(Gravity.CENTER);
+        e.setTextColor(0xFF2D2D3A);
+        full(e);
+    }
+
+    private LinearLayout card(String title, int fill, int stroke) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(shape(fill, stroke, 26, 2));
+        c.setPadding(dp(12), dp(10), dp(12), dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dp(8), 0, dp(8));
+        c.setLayoutParams(lp);
+        if (title != null) {
+            TextView t = new TextView(this);
+            t.setText(title);
+            t.setTextSize(19);
+            t.setTypeface(null, Typeface.BOLD);
+            t.setTextColor(0xFF3B3B4F);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(0, 0, 0, dp(6));
+            c.addView(t);
+        }
+        return c;
+    }
+
     private void buildUi() {
+        final int INK = 0xFF2D2D3A;
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(32, 48, 32, 32);
+        l.setPadding(dp(14), dp(10), dp(14), dp(8));
+
+        // زخرفة متحركة فوق
+        LinearLayout deco = row();
+        deco.setGravity(Gravity.CENTER);
+        String[] em = {"🌸", "💛", "😄", "🌸", "💛", "😄", "🌸"};
+        for (int i = 0; i < em.length; i++) {
+            TextView e = new TextView(this);
+            e.setText(em[i]);
+            e.setTextSize(26);
+            e.setGravity(Gravity.CENTER);
+            deco.addView(w(e));
+            ObjectAnimator a = ObjectAnimator.ofFloat(e, "translationY", 0f, -dp(6));
+            a.setDuration(1100 + i * 140);
+            a.setRepeatCount(ValueAnimator.INFINITE);
+            a.setRepeatMode(ValueAnimator.REVERSE);
+            a.start();
+            anims.add(a);
+        }
+        l.addView(deco);
 
         TextView title = new TextView(this);
         title.setText("TV Link 📱 ← 📺");
-        title.setTextSize(26);
+        title.setTextSize(28);
+        title.setTypeface(null, Typeface.BOLD);
+        title.setTextColor(0xFF1E3A8A);
         title.setGravity(Gravity.CENTER);
         l.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("🌷 شاشة كبيرة · جودة عالية · تحكم كامل 🌼");
+        sub.setTextSize(14);
+        sub.setTextColor(0xFF7A6F5E);
+        sub.setGravity(Gravity.CENTER);
+        l.addView(sub);
 
+        // 1) الاتصال
+        LinearLayout c1 = card("🔗 الاتصال بـ TV Box", 0xE6EEF2FF, 0xFF93B4F5);
         codeF = new EditText(this);
         codeF.setHint("كود TV Box");
         codeF.setInputType(InputType.TYPE_CLASS_NUMBER);
         codeF.setText(sp.getString("paircode", Net.DEFAULT_CODE));
         codeF.setTextSize(24);
-        l.addView(codeF);
-
+        field(codeF);
+        c1.addView(codeF);
         ipF = new EditText(this);
         ipF.setHint("IP ديال TV Box (اختياري)");
         ipF.setInputType(InputType.TYPE_CLASS_PHONE);
-        l.addView(ipF);
-
-        l.addView(btn("🔗 اتصل بـ TV Box", new View.OnClickListener() {
+        ipF.setTextSize(16);
+        field(ipF);
+        c1.addView(ipF);
+        c1.addView(full(sbtn("🔗 اتصل بـ TV Box", 0xFFBFDBFE, 0xFF2563EB, 0xFF1E3A8A, new View.OnClickListener() {
             @Override public void onClick(View v) { connect(); }
-        }));
+        })));
+        status = new TextView(this);
+        status.setTextSize(16);
+        status.setTextColor(INK);
+        status.setGravity(Gravity.CENTER);
+        status.setPadding(0, dp(8), 0, 0);
+        status.setText("دخل الكود واضغط اتصل");
+        c1.addView(status);
+        l.addView(c1);
 
-        LinearLayout pk = new LinearLayout(this);
-        pk.addView(weight(btn("🎬 فيديو", pickL("video/*", 1))));
-        pk.addView(weight(btn("🖼 صورة", pickL("image/*", 2))));
-        pk.addView(weight(btn("📄 PDF", pickL("application/pdf", 3))));
-        l.addView(pk);
-
-        l.addView(btn("🧩 2 أو 3 صور/PDF فنفس الشاشة (الأفواج)", new View.OnClickListener() {
+        // 2) إرسال الملفات
+        LinearLayout c2 = card("📤 أرسل للداتا شو", 0xE6FCE4EC, 0xFFF4A6C0);
+        LinearLayout pk = row();
+        pk.addView(w(tile("🎬\nفيديو", 0xFFFFE0B2, 0xFFF59E0B, pickL("video/*", 1))));
+        pk.addView(w(tile("🖼\nصورة", 0xFFF8BBD0, 0xFFEC4899, pickL("image/*", 2))));
+        pk.addView(w(tile("📄\nPDF", 0xFFE1BEE7, 0xFF9333EA, pickL("application/pdf", 3))));
+        c2.addView(pk);
+        c2.addView(full(sbtn("🧩 2 أو 3 صور/PDF فنفس الشاشة (الأفواج)", 0xFFFFF3C4, 0xFFF59E0B, INK,
+                new View.OnClickListener() {
             @Override public void onClick(View v) {
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -210,16 +369,20 @@ public class SenderActivity extends Activity {
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 startActivityForResult(i, 4);
             }
-        }));
+        })));
+        l.addView(c2);
 
-        l.addView(btn("📱 عرض شاشة الهاتف على TV Box", new View.OnClickListener() {
+        // 3) مشاركة شاشة الهاتف
+        LinearLayout c3 = card("📱 عرض شاشة الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
+        c3.addView(full(sbtn("📱 عرض شاشة الهاتف على TV Box", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20,
+                new View.OnClickListener() {
             @Override public void onClick(View v) { startMirror(); }
-        }));
-        LinearLayout mr = new LinearLayout(this);
-        mr.addView(weight(btn("⏹ وقف عرض الشاشة", new View.OnClickListener() {
+        })));
+        LinearLayout mr = row();
+        mr.addView(w(sbtn("⏹ وقف عرض الشاشة", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, new View.OnClickListener() {
             @Override public void onClick(View v) { stopMirror(); }
         })));
-        mBtn = btn(levelText(), new View.OnClickListener() {
+        mBtn = sbtn(levelText(), 0xFFFFF3C4, 0xFFF59E0B, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 mlevel = (mlevel + 1) % 3;
                 sp.edit().putInt("mlevel", mlevel).apply();
@@ -229,10 +392,10 @@ public class SenderActivity extends Activity {
                         .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}
             }
         });
-        mr.addView(weight(mBtn));
-        l.addView(mr);
-
-        cBtn = btn(compatText(), new View.OnClickListener() {
+        mBtn.setTextSize(14);
+        mr.addView(w(mBtn));
+        c3.addView(mr);
+        cBtn = sbtn(compatText(), 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 compat = !compat;
                 sp.edit().putBoolean("compat", compat).apply();
@@ -240,9 +403,9 @@ public class SenderActivity extends Activity {
                 setStatus(compat ? "وضع التوافق مفعل. وقف العرض وبداه من جديد." : "وضع التوافق ملغى. وقف العرض وبداه من جديد.");
             }
         });
-        l.addView(cBtn);
-
-        rBtn = btn(rotText(), new View.OnClickListener() {
+        cBtn.setTextSize(14);
+        c3.addView(full(cBtn));
+        rBtn = sbtn(rotText(), 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 autoRot = !autoRot;
                 sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").apply();
@@ -250,77 +413,82 @@ public class SenderActivity extends Activity {
                 applyAutoRotate();
             }
         });
-        l.addView(rBtn);
+        rBtn.setTextSize(14);
+        c3.addView(full(rBtn));
+        l.addView(c3);
 
-        TextView zt = new TextView(this);
-        zt.setText("🔍 تكبير الصورة / PDF");
-        zt.setGravity(Gravity.CENTER);
-        l.addView(zt);
-        LinearLayout z1 = new LinearLayout(this);
-        z1.addView(weight(btn("➖", ctl("zout"))));
-        z1.addView(weight(btn("⟲ 1x", ctl("zreset"))));
-        z1.addView(weight(btn("➕", ctl("zin"))));
-        l.addView(z1);
-        LinearLayout z2 = new LinearLayout(this);
-        z2.addView(weight(btn("◀", ctl("pl"))));
-        z2.addView(weight(btn("▲", ctl("pu"))));
-        z2.addView(weight(btn("▼", ctl("pd"))));
-        z2.addView(weight(btn("▶", ctl("pr"))));
-        l.addView(z2);
-
-        LinearLayout r1 = new LinearLayout(this);
-        r1.addView(weight(btn("⏪ 10ث", ctl("back"))));
-        r1.addView(weight(btn("⏯", ctl("pause"))));
-        r1.addView(weight(btn("10ث ⏩", ctl("fwd"))));
-        l.addView(r1);
-        LinearLayout r2 = new LinearLayout(this);
-        r2.addView(weight(btn("◀ صفحة", ctl("prev"))));
-        r2.addView(weight(btn("⏹ وقف", ctl("stop"))));
-        r2.addView(weight(btn("صفحة ▶", ctl("next"))));
-        l.addView(r2);
-
-        qBtn = btn("🔍 الجودة: عالية", new View.OnClickListener() {
+        // 4) العرض والتكبير
+        LinearLayout c4 = card("🔍 العرض والتكبير (صورة / PDF)", 0xE6FFF3E0, 0xFFF5B25B);
+        LinearLayout z1 = row();
+        z1.addView(w(sbtn("➖", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zout"))));
+        z1.addView(w(sbtn("⟲ 1x", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zreset"))));
+        z1.addView(w(sbtn("➕", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zin"))));
+        c4.addView(z1);
+        LinearLayout z2 = row();
+        z2.addView(w(sbtn("◀", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pl"))));
+        z2.addView(w(sbtn("▲", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pu"))));
+        z2.addView(w(sbtn("▼", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pd"))));
+        z2.addView(w(sbtn("▶", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pr"))));
+        c4.addView(z2);
+        c4.addView(full(sbtn("🖼 شكل الصورة: تلقائي ← كاملة ← عرض كامل ← تغطية", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("imode"))));
+        qBtn = sbtn("🔍 الجودة: عالية", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 hq = !hq;
                 qBtn.setText(hq ? "🔍 الجودة: عالية" : "🔍 الجودة: عادية");
                 sendCmd(hq ? "qh" : "ql");
             }
         });
-        l.addView(qBtn);
+        c4.addView(full(qBtn));
+        l.addView(c4);
 
-        // ---- صوت TV Box (رفع / خفض / كتم / أقصى) ----
-        TextView vt = new TextView(this);
-        vt.setText("🔊 صوت TV Box");
-        vt.setGravity(Gravity.CENTER);
-        vt.setPadding(0, 16, 0, 0);
-        l.addView(vt);
-        LinearLayout vr = new LinearLayout(this);
-        vr.addView(weight(volBtn("🔉 −", "voldown", true)));
-        vr.addView(weight(volBtn("🔇", "mute", false)));
-        vr.addView(weight(volBtn("🔊 +", "volup", true)));
-        vr.addView(weight(volBtn("MAX", "volmax", false)));
-        l.addView(vr);
-
-        // ---- شكل عرض الصورة / الورقة / PDF ----
-        l.addView(btn("🖼 شكل الصورة: تلقائي ← كاملة ← عرض كامل ← تغطية", ctl("imode")));
-
-        status = new TextView(this);
-        status.setTextSize(18);
-        status.setPadding(0, 24, 0, 24);
-        status.setText("دخل الكود واضغط اتصل");
-        l.addView(status);
-
-        l.addView(btn("تغيير الوضع", new View.OnClickListener() {
+        l.addView(full(sbtn("⚙️ تغيير الوضع", 0xFF2F4B7C, 0xFF2F4B7C, 0xFFFFFFFF, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 sp.edit().remove("mode").apply();
                 startActivity(new Intent(SenderActivity.this, MainActivity.class).putExtra("choose", true));
                 finish();
             }
-        }));
+        })));
+        TextView foot = new TextView(this);
+        foot.setText("🌷🌼🌸🌼🌷");
+        foot.setTextSize(22);
+        foot.setGravity(Gravity.CENTER);
+        l.addView(foot);
 
         ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
         sv.addView(l);
-        setContentView(sv);
+
+        // الشريط السفلي الثابت: الفيديو + الصفحات + الصوت
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.VERTICAL);
+        bar.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 26, 2));
+        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
+        LinearLayout r1 = row();
+        r1.addView(w(compact(sbtn("⏪ 10ث", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("back")))));
+        r1.addView(w(compact(sbtn("⏯", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("pause")))));
+        r1.addView(w(compact(sbtn("10ث ⏩", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("fwd")))));
+        bar.addView(r1);
+        LinearLayout r2 = row();
+        r2.addView(w(compact(sbtn("◀ صفحة", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("prev")))));
+        r2.addView(w(compact(sbtn("⏹ وقف", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, ctl("stop")))));
+        r2.addView(w(compact(sbtn("صفحة ▶", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("next")))));
+        bar.addView(r2);
+        LinearLayout vr = row();
+        vr.addView(w(volBtn("🔉 −", "voldown", true)));
+        vr.addView(w(volBtn("🔇", "mute", false)));
+        vr.addView(w(volBtn("🔊 +", "volup", true)));
+        vr.addView(w(volBtn("MAX", "volmax", false)));
+        bar.addView(vr);
+
+        LinearLayout rootL = new LinearLayout(this);
+        rootL.setOrientation(LinearLayout.VERTICAL);
+        rootL.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFFFFF8EE, 0xFFF3E9D6}));
+        rootL.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.setMargins(dp(8), dp(2), dp(8), dp(8));
+        rootL.addView(bar, blp);
+        setContentView(rootL);
     }
 
     private void setStatus(final String s) {
