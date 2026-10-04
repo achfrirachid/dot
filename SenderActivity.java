@@ -201,6 +201,17 @@ public class SenderActivity extends Activity {
         pk.addView(weight(btn("📄 PDF", pickL("application/pdf", 3))));
         l.addView(pk);
 
+        l.addView(btn("🧩 2 أو 3 صور/PDF فنفس الشاشة (الأفواج)", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "application/pdf"});
+                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                startActivityForResult(i, 4);
+            }
+        }));
+
         l.addView(btn("📱 عرض شاشة الهاتف على TV Box", new View.OnClickListener() {
             @Override public void onClick(View v) { startMirror(); }
         }));
@@ -593,6 +604,10 @@ public class SenderActivity extends Activity {
             else setStatus("تلغى عرض الشاشة");
             return;
         }
+        if (req == 4) {
+            if (res == RESULT_OK && data != null) sendMulti(data);
+            return;
+        }
         if (res == RESULT_OK && data != null && data.getData() != null) {
             String t = req == 1 ? "video" : req == 2 ? "image" : req == 3 ? "pdf" : null;
             sendUri(data.getData(), t);
@@ -653,6 +668,91 @@ public class SenderActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    // ---------------- 2 أو 3 ملفات فنفس الشاشة ----------------
+    private void sendMulti(Intent data) {
+        final List<Uri> us = new ArrayList<Uri>();
+        ClipData cd = data.getClipData();
+        if (cd != null) {
+            for (int i = 0; i < cd.getItemCount() && us.size() < 3; i++) {
+                Uri u = cd.getItemAt(i).getUri();
+                if (u != null) us.add(u);
+            }
+        } else if (data.getData() != null) {
+            us.add(data.getData());
+        }
+        if (us.isEmpty()) return;
+        if (us.size() == 1) { sendUri(us.get(0), null); return; }
+        final String codeNow = codeF != null && !codeF.getText().toString().trim().isEmpty()
+                ? codeF.getText().toString().trim() : sp.getString("paircode", Net.DEFAULT_CODE);
+        final boolean tooMany = cd != null && cd.getItemCount() > 3;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    bindWifi();
+                    if (ip == null) ip = discover(codeNow, 5000);
+                    if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                    int total = us.size();
+                    for (int i = 0; i < total; i++) {
+                        Uri uri = us.get(i);
+                        String name = "file";
+                        long size = -1;
+                        Cursor cur = getContentResolver().query(uri, null, null, null, null);
+                        if (cur != null) {
+                            if (cur.moveToFirst()) {
+                                int ni = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                                int si = cur.getColumnIndex(OpenableColumns.SIZE);
+                                if (ni >= 0 && !cur.isNull(ni)) name = cur.getString(ni);
+                                if (si >= 0 && !cur.isNull(si)) size = cur.getLong(si);
+                            }
+                            cur.close();
+                        }
+                        if (size < 0) {
+                            AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(uri, "r");
+                            if (afd != null) { size = afd.getLength(); afd.close(); }
+                        }
+                        if (size < 0) { setStatus("❌ ما قدرتش نعرف حجم الملف " + (i + 1)); return; }
+                        String mime = getContentResolver().getType(uri);
+                        String type = "image";
+                        if ("application/pdf".equals(mime) || name.toLowerCase().endsWith(".pdf")) type = "pdf";
+                        if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : ".jpg";
+                        setStatus("كنبعث " + (i + 1) + "/" + total + "...");
+                        int rc = uploadMulti(ip, codeNow, uri, type, name, size, i, total);
+                        if (rc == 403) { setStatus("❌ الكود غلط"); return; }
+                        if (rc != 200) { setStatus("❌ خطأ " + rc); return; }
+                    }
+                    setStatus("✅ تبعثو " + total + " فالشاشة" + (tooMany ? " (خدمت غير أول 3)" : ""));
+                } catch (Exception e) {
+                    ip = null;
+                    setStatus("❌ فشل الإرسال. تأكد من الواي فاي واضغط اتصل.");
+                }
+            }
+        }).start();
+    }
+
+    private int uploadMulti(String host, String code, Uri uri, String type, String name, long size,
+                            int slot, int total) throws Exception {
+        URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + "/multi?type=" + type
+                + "&slot=" + slot + "&total=" + total
+                + "&name=" + URLEncoder.encode(name, "UTF-8"));
+        HttpURLConnection c = (HttpURLConnection) url.openConnection();
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setFixedLengthStreamingMode(size);
+        c.setRequestProperty("X-Code", code);
+        c.setConnectTimeout(5000);
+        c.setReadTimeout(180000);
+        InputStream in = getContentResolver().openInputStream(uri);
+        OutputStream o = c.getOutputStream();
+        byte[] buf = new byte[65536];
+        int n;
+        while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+        o.close();
+        in.close();
+        int rc = c.getResponseCode();
+        c.disconnect();
+        return rc;
     }
 
     private int upload(String host, String code, Uri uri, String type, String name, long size) throws Exception {

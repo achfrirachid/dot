@@ -17,6 +17,7 @@ import android.graphics.pdf.PdfRenderer;
 import android.media.AudioManager;
 import android.media.ExifInterface;
 import android.media.MediaPlayer;
+import android.media.audiofx.LoudnessEnhancer;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -30,6 +31,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.VideoView;
 
 import java.io.BufferedInputStream;
@@ -62,6 +64,12 @@ public class ReceiverActivity extends Activity {
     private FrameLayout root;
     private VideoView video;
     private FillImageView image;
+    private LinearLayout multi;
+    private int boostMb = 0, enhSession = -1;
+    private LoudnessEnhancer enh;
+    private File[] multiFiles;
+    private String[] multiTypes;
+    private int multiTotal, multiGot;
     private LinearLayout idle;
     private TextView info, codeView;
 
@@ -141,6 +149,12 @@ public class ReceiverActivity extends Activity {
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         root.addView(image, new FrameLayout.LayoutParams(-1, -1));
         image.setVisibility(View.GONE);
+
+        multi = new LinearLayout(this);
+        multi.setOrientation(LinearLayout.HORIZONTAL);
+        multi.setBackgroundColor(Color.parseColor("#444444"));
+        root.addView(multi, new FrameLayout.LayoutParams(-1, -1));
+        multi.setVisibility(View.GONE);
 
         try {
             web = new WebView(this);
@@ -364,6 +378,38 @@ public class ReceiverActivity extends Activity {
                     @Override public void run() { show(f, type); }
                 });
                 reply(out, 200, "ok");
+            } else if ("/multi".equals(p)) {
+                String name = u.getQueryParameter("name");
+                if (name == null) name = "file";
+                name = name.replaceAll("[^A-Za-z0-9._-]", "_");
+                final String type = u.getQueryParameter("type");
+                int sl = 0, tt = 1;
+                try { sl = Integer.parseInt(u.getQueryParameter("slot")); } catch (Exception ignored) {}
+                try { tt = Integer.parseInt(u.getQueryParameter("total")); } catch (Exception ignored) {}
+                final int slot = Math.max(0, Math.min(2, sl));
+                final int total = Math.max(1, Math.min(3, tt));
+                File dir = new File(getCacheDir(), "multi");
+                dir.mkdirs();
+                if (slot == 0) {
+                    File[] oldf = dir.listFiles();
+                    if (oldf != null) for (File o : oldf) o.delete();
+                }
+                final File f = new File(dir, slot + "_" + System.currentTimeMillis() + "_" + name);
+                FileOutputStream fo = new FileOutputStream(f);
+                byte[] buf = new byte[65536];
+                long left = len;
+                while (left > 0) {
+                    int n = in.read(buf, 0, (int) Math.min(buf.length, left));
+                    if (n < 0) break;
+                    fo.write(buf, 0, n);
+                    left -= n;
+                }
+                fo.close();
+                if (left > 0) { f.delete(); reply(out, 400, "incomplete"); return; }
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { multiAdd(slot, total, f, type); }
+                });
+                reply(out, 200, "ok");
             } else {
                 reply(out, 404, "?");
             }
@@ -398,7 +444,7 @@ public class ReceiverActivity extends Activity {
             } else {
                 video.setVisibility(View.VISIBLE);
                 video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                    @Override public void onPrepared(MediaPlayer mp) { video.start(); }
+                    @Override public void onPrepared(MediaPlayer mp) { video.start(); applyBoost(); }
                 });
                 video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                     @Override public boolean onError(MediaPlayer mp, int what, int extra) {
@@ -465,6 +511,10 @@ public class ReceiverActivity extends Activity {
         pfd = null;
         curFile = null;
         curType = null;
+        if (multi != null) { multi.removeAllViews(); multi.setVisibility(View.GONE); }
+        multiFiles = null;
+        multiTypes = null;
+        multiGot = 0;
         if (web != null) {
             try { web.loadUrl("about:blank"); } catch (Exception ignored) {}
             web.setVisibility(View.GONE);
@@ -483,6 +533,12 @@ public class ReceiverActivity extends Activity {
         image.setScaleY(zoom);
         image.setTranslationX(panX);
         image.setTranslationY(panY);
+        if (multi != null) {
+            multi.setScaleX(zoom);
+            multi.setScaleY(zoom);
+            multi.setTranslationX(panX);
+            multi.setTranslationY(panY);
+        }
     }
 
     private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); image.refreshQuality(); }
@@ -534,25 +590,33 @@ public class ReceiverActivity extends Activity {
                 panX -= root.getWidth() * 0.15f; applyZoom();
                 break;
             case "pu":
+                if (multiShown()) { scrollMulti(-root.getHeight() * 0.25f); break; }
                 if (!image.scrollContent(-root.getHeight() * 0.25f)) { panY += root.getHeight() * 0.15f; applyZoom(); }
                 break;
             case "pd":
+                if (multiShown()) { scrollMulti(root.getHeight() * 0.25f); break; }
                 if (!image.scrollContent(root.getHeight() * 0.25f)) { panY -= root.getHeight() * 0.15f; applyZoom(); }
                 break;
             case "imode":
-                image.cycleMode();
+                if (multiShown()) {
+                    for (int i = 0; i < multi.getChildCount(); i++)
+                        ((FillImageView) multi.getChildAt(i)).cycleMode();
+                } else image.cycleMode();
                 break;
             case "volup":
-                adjustVolume(AudioManager.ADJUST_RAISE);
+                volumeStep(1);
                 break;
             case "voldown":
-                adjustVolume(AudioManager.ADJUST_LOWER);
+                volumeStep(-1);
                 break;
             case "mute":
                 adjustVolume(AudioManager.ADJUST_TOGGLE_MUTE);
                 break;
             case "volmax":
                 setMaxVolume();
+                boostMb = 800;
+                applyBoost();
+                volToast();
                 break;
             case "next":
                 if (pdf != null && page < pdf.getPageCount() - 1) { page++; resetZoom(); renderPage(); }
@@ -561,6 +625,155 @@ public class ReceiverActivity extends Activity {
                 if (pdf != null && page > 0) { page--; resetZoom(); renderPage(); }
                 break;
         }
+    }
+
+    // ---------------- تقسيم الشاشة (2 أو 3 فروض) ----------------
+    private boolean multiShown() { return multi != null && multi.getVisibility() == View.VISIBLE; }
+
+    private void scrollMulti(float d) {
+        for (int i = 0; i < multi.getChildCount(); i++)
+            ((FillImageView) multi.getChildAt(i)).scrollContent(d);
+    }
+
+    private void multiAdd(int slot, int total, File f, String type) {
+        if (slot == 0 || multiFiles == null || multiFiles.length != total) {
+            killStream();
+            front();
+            stopMedia();
+            resetZoom();
+            multiFiles = new File[total];
+            multiTypes = new String[total];
+            multiGot = 0;
+            multiTotal = total;
+        }
+        if (slot < multiFiles.length) {
+            if (multiFiles[slot] == null) multiGot++;
+            multiFiles[slot] = f;
+            multiTypes[slot] = type;
+        }
+        if (multiGot >= multiTotal) showMulti();
+    }
+
+    private void showMulti() {
+        if (multiFiles == null) return;
+        multi.removeAllViews();
+        int h = root.getHeight() > 0 ? root.getHeight() : 1080;
+        for (int i = 0; i < multiFiles.length; i++) {
+            FillImageView v = new FillImageView(this);
+            v.setBackgroundColor(Color.BLACK);
+            Bitmap bm = null;
+            try {
+                bm = "pdf".equals(multiTypes[i]) ? firstPdfPage(multiFiles[i], h) : decodeMulti(multiFiles[i]);
+            } catch (Throwable ignored) {}
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1f);
+            if (i > 0) lp.leftMargin = 4;
+            multi.addView(v, lp);
+            v.setMode(FillImageView.FIT);
+            if (bm != null) v.setImageBitmap(bm);
+        }
+        idle.setVisibility(View.GONE);
+        image.setVisibility(View.GONE);
+        multi.setVisibility(View.VISIBLE);
+        curType = "multi";
+        showing = true;
+    }
+
+    private Bitmap firstPdfPage(File f, int viewH) throws Exception {
+        ParcelFileDescriptor fd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
+        PdfRenderer r = new PdfRenderer(fd);
+        try {
+            PdfRenderer.Page pg = r.openPage(0);
+            int hh = Math.min((int) (viewH * 1.6f), 2560);
+            float sc = (float) hh / pg.getHeight();
+            int w = Math.max(1, (int) (pg.getWidth() * sc));
+            Bitmap bm = Bitmap.createBitmap(w, hh, Bitmap.Config.ARGB_8888);
+            bm.eraseColor(Color.WHITE);
+            pg.render(bm, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            pg.close();
+            return bm;
+        } finally {
+            try { r.close(); } catch (Exception ignored) {}
+            try { fd.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private Bitmap decodeMulti(File f) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getPath(), o);
+        int s = 1;
+        while (o.outWidth / s > 2560 || o.outHeight / s > 2560) s *= 2;
+        o = new BitmapFactory.Options();
+        o.inSampleSize = s;
+        Bitmap bm = BitmapFactory.decodeFile(f.getPath(), o);
+        int deg = 0;
+        try {
+            int ori = new ExifInterface(f.getPath()).getAttributeInt(ExifInterface.TAG_ORIENTATION, 1);
+            if (ori == 6) deg = 90; else if (ori == 3) deg = 180; else if (ori == 8) deg = 270;
+        } catch (Exception ignored) {}
+        if (deg != 0 && bm != null) {
+            Matrix m = new Matrix();
+            m.postRotate(deg);
+            bm = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
+        }
+        return bm;
+    }
+
+    // رفع / خفض صوت TV Box: أولا صوت النظام، وملي يوصل للأقصى (ولا كان ثابت عبر HDMI) كيتضخم الصوت بالتطبيق
+    private void volumeStep(int dir) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            boolean fixed = Build.VERSION.SDK_INT >= 21 && am.isVolumeFixed();
+            if (dir > 0) {
+                if (!fixed && cur < max) {
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, cur + 1, 0);
+                    if (am.getStreamVolume(AudioManager.STREAM_MUSIC) == cur)
+                        am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0);
+                } else {
+                    boostMb = Math.min(2000, boostMb + 400);
+                }
+            } else {
+                if (boostMb > 0) {
+                    boostMb = Math.max(0, boostMb - 400);
+                } else if (!fixed && cur > 0) {
+                    am.setStreamVolume(AudioManager.STREAM_MUSIC, cur - 1, 0);
+                    if (am.getStreamVolume(AudioManager.STREAM_MUSIC) == cur)
+                        am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0);
+                }
+            }
+        } catch (Exception ignored) {}
+        applyBoost();
+        volToast();
+    }
+
+    // تضخيم إضافي للصوت (للفيديو) فوق أقصى صوت النظام
+    private void applyBoost() {
+        try {
+            if (video == null || video.getVisibility() != View.VISIBLE) return;
+            int sid = video.getAudioSessionId();
+            if (sid == 0) return;
+            if (enh == null || enhSession != sid) {
+                if (enh != null) { try { enh.release(); } catch (Exception ignored) {} }
+                enh = new LoudnessEnhancer(sid);
+                enhSession = sid;
+            }
+            enh.setTargetGain(boostMb);
+            enh.setEnabled(boostMb > 0);
+        } catch (Throwable ignored) {}
+    }
+
+    private void volToast() {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            boolean fixed = Build.VERSION.SDK_INT >= 21 && am.isVolumeFixed();
+            String t = "🔊 " + cur + "/" + max + (boostMb > 0 ? "  +" + (boostMb / 100) + "dB" : "")
+                    + (fixed ? "  (صوت ثابت HDMI)" : "");
+            Toast.makeText(this, t, Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {}
     }
 
     // رفع / خفض صوت TV Box من الهاتف
@@ -670,6 +883,7 @@ public class ReceiverActivity extends Activity {
         try {
             if ("pdf".equals(curType) && pdf != null) renderPage();
             else if ("image".equals(curType) && curFile != null) image.setImageBitmap(decode(curFile));
+            else if ("multi".equals(curType) && multiFiles != null) showMulti();
         } catch (Exception ignored) {}
     }
 
