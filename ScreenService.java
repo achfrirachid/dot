@@ -46,7 +46,7 @@ public class ScreenService extends Service {
     private boolean compat;
     private int jq = 62;
     private int dpi = 320;
-    private long lastCheck;
+    private long lastCheck, lastSum, lastSent;
     private final ImageReader.OnImageAvailableListener frameListener = new ImageReader.OnImageAvailableListener() {
         @Override public void onImageAvailable(ImageReader r) { onFrame(r); }
     };
@@ -136,13 +136,14 @@ public class ScreenService extends Service {
             DisplayMetrics dm = new DisplayMetrics();
             ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
             dpi = dm.densityDpi;
-            int longSide = level == 0 ? 854 : level == 1 ? 1280 : 2400;
+            int longSide = level == 0 ? 854 : level == 1 ? 1280 : level == 2 ? 1920 : 2560;
             if (compat && longSide > 1280) longSide = 1280;
             float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            jq = level == 0 ? 50 : level == 1 ? 62 : 80;
+            jq = level == 0 ? 50 : level == 1 ? 70 : level == 2 ? 88 : 95;
+            lastSum = 0;
 
             ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, compat ? 3 : 2);
             nr.setOnImageAvailableListener(frameListener, handler);
@@ -192,7 +193,7 @@ public class ScreenService extends Service {
             }
             img = r.acquireLatestImage();
             if (img == null || !running) return;
-            long wait = 70 - (SystemClock.uptimeMillis() - last);
+            long wait = (level >= 3 ? 130 : level == 2 ? 100 : 70) - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();
             int w = r.getWidth();
@@ -203,6 +204,12 @@ public class ScreenService extends Service {
             if (bmp == null || bmp.getWidth() != bw || bmp.getHeight() != h) {
                 bmp = Bitmap.createBitmap(bw, h, Bitmap.Config.ARGB_8888);
             }
+            // الشاشة ما تغيراتش؟ ما نعاودوش نرسلو (كيوفر الشبكة ويخلي الجودة العالية تخدم)
+            long sum = 17;
+            int cap = buf.limit();
+            for (int i = 0; i < cap; i += 61) sum = sum * 31 + buf.get(i);
+            if (sum == lastSum && SystemClock.uptimeMillis() - lastSent < 1500) return;
+            lastSum = sum;
             buf.rewind();
             bmp.copyPixelsFromBuffer(buf);
             Bitmap src = bw == w ? bmp : Bitmap.createBitmap(bmp, 0, 0, w, h);
@@ -212,6 +219,7 @@ public class ScreenService extends Service {
             out.writeInt(bo.size());
             bo.writeTo(out);
             out.flush();
+            lastSent = SystemClock.uptimeMillis();
         } catch (Exception e) {
             stopAll();
         } finally {

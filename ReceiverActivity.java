@@ -16,6 +16,7 @@ import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
@@ -95,6 +96,11 @@ public class ReceiverActivity extends Activity {
     // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
     private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 0, lvlSha = 0;
     private float fit = 1f;
+    // عرض شاشة الهاتف: 0 = ملء (تمديد) / 1 = تغطية (قص) / 2 = النسبة الأصلية
+    private ImageView liveView;
+    private int liveMode = 0;
+    private Rect cropRect, candRect;
+    private int candCount, frameNo, cropW, cropH;
 
     // VideoView كيملا الشاشة كاملة (ماشي غير الحجم الأصلي)
     private static class FillVideoView extends VideoView {
@@ -121,7 +127,9 @@ public class ReceiverActivity extends Activity {
         lvlSat = sp.getInt("l_sat", 5);
         lvlTxt = sp.getInt("l_txt", 0);
         lvlSha = sp.getInt("l_sha", 0);
+        liveMode = sp.getInt("l_live", 0);
         buildUi();
+        applyLiveMode();
         applyLevels();
         askOverlay();
         try {
@@ -169,6 +177,11 @@ public class ReceiverActivity extends Activity {
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         root.addView(image, new FrameLayout.LayoutParams(-1, -1));
         image.setVisibility(View.GONE);
+
+        liveView = new ImageView(this);
+        liveView.setScaleType(ImageView.ScaleType.FIT_XY);
+        root.addView(liveView, new FrameLayout.LayoutParams(-1, -1));
+        liveView.setVisibility(View.GONE);
 
         multi = new LinearLayout(this);
         multi.setOrientation(LinearLayout.HORIZONTAL);
@@ -531,7 +544,7 @@ public class ReceiverActivity extends Activity {
     private Bitmap sharpen(Bitmap bm) {
         if (bm == null || lvlSha <= 0) return bm;
         try {
-            float a = lvlSha * 0.1f;
+            float a = lvlSha * 0.15f;
             RenderScript rs = RenderScript.create(this);
             Allocation in = Allocation.createFromBitmap(rs, bm);
             Allocation out = Allocation.createTyped(rs, in.getType());
@@ -563,6 +576,7 @@ public class ReceiverActivity extends Activity {
         try { video.stopPlayback(); } catch (Exception ignored) {}
         video.setVisibility(View.GONE);
         image.setImageDrawable(null);
+        if (liveView != null) { liveView.setImageDrawable(null); liveView.setVisibility(View.GONE); }
         image.setVisibility(View.GONE);
         try { if (pdf != null) pdf.close(); } catch (Exception ignored) {}
         try { if (pfd != null) pfd.close(); } catch (Exception ignored) {}
@@ -594,6 +608,7 @@ public class ReceiverActivity extends Activity {
         image.setTranslationX(panX);
         image.setTranslationY(panY);
         if (video != null) { video.setScaleX(fit); video.setScaleY(fit); }
+        if (liveView != null) { liveView.setScaleX(fit); liveView.setScaleY(fit); }
         if (multi != null) {
             multi.setScaleX(eff);
             multi.setScaleY(eff);
@@ -611,10 +626,11 @@ public class ReceiverActivity extends Activity {
         if (neutral) {
             image.setLayerType(View.LAYER_TYPE_NONE, null);
             multi.setLayerType(View.LAYER_TYPE_NONE, null);
+            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_NONE, null);
         } else {
             ColorMatrix cm = new ColorMatrix();
             cm.setSaturation(0.5f + 0.1f * lvlSat);
-            float c = 0.5f + 0.1f * lvlCon;
+            float c = lvlCon <= 5 ? 0.5f + 0.1f * lvlCon : 1f + 0.25f * (lvlCon - 5);
             float t = 128f * (1f - c) + (lvlBri - 5) * 10f;
             cm.postConcat(new ColorMatrix(new float[]{
                     c, 0, 0, 0, t,
@@ -623,7 +639,7 @@ public class ReceiverActivity extends Activity {
                     0, 0, 0, 1, 0}));
             if (lvlTxt > 0) {
                 // كيغمق الكتابة: الرمادي كيولي أسود، والأبيض كيبقى أبيض
-                float k = 1f + 0.2f * lvlTxt;
+                float k = 1f + 0.3f * lvlTxt;
                 float o = 255f * 0.8f * (1f - k);
                 cm.postConcat(new ColorMatrix(new float[]{
                         k, 0, 0, 0, o,
@@ -635,6 +651,7 @@ public class ReceiverActivity extends Activity {
             p.setColorFilter(new ColorMatrixColorFilter(cm));
             image.setLayerType(View.LAYER_TYPE_HARDWARE, p);
             multi.setLayerType(View.LAYER_TYPE_HARDWARE, p);
+            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_HARDWARE, p);
         }
         applyZoom();
     }
@@ -662,6 +679,73 @@ public class ReceiverActivity extends Activity {
         else return;
         ed.apply();
         applyLevels();
+    }
+
+    private void applyLiveMode() {
+        if (liveView == null) return;
+        liveView.setScaleType(liveMode == 0 ? ImageView.ScaleType.FIT_XY
+                : liveMode == 1 ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_CENTER);
+    }
+
+    private static boolean near(Rect a, Rect b) {
+        return Math.abs(a.left - b.left) < 12 && Math.abs(a.top - b.top) < 12
+                && Math.abs(a.right - b.right) < 12 && Math.abs(a.bottom - b.bottom) < 12;
+    }
+
+    // كيقلب على المساحة اللي فيها محتوى حقيقي (بلا الحواف السوداء)
+    private static Rect contentBounds(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        int sx = Math.max(1, w / 80), sy = Math.max(1, h / 80);
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y += sy) {
+            for (int x = 0; x < w; x += sx) {
+                int p = b.getPixel(x, y);
+                int lum = ((p >> 16) & 0xFF) + ((p >> 8) & 0xFF) + (p & 0xFF);
+                if (lum > 60) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (maxX < 0) return null;
+        int l = Math.max(0, minX - 2 * sx), t = Math.max(0, minY - 2 * sy);
+        int rr = Math.min(w, maxX + 2 * sx), bb = Math.min(h, maxY + 2 * sy);
+        if (rr - l < w * 0.3f || bb - t < h * 0.3f) return null;
+        return new Rect(l, t, rr, bb);
+    }
+
+    // كيحيد الحواف السوداء من إطار عرض الشاشة باش المحتوى يملأ الداتا شو
+    private Bitmap autoCrop(Bitmap b) {
+        try {
+            int w = b.getWidth(), h = b.getHeight();
+            if (w != cropW || h != cropH) { cropW = w; cropH = h; cropRect = null; candRect = null; candCount = 0; frameNo = 0; }
+            if (cropRect == null || (frameNo++ % 10) == 0) {
+                Rect c = contentBounds(b);
+                if (c != null) {
+                    if (cropRect == null) {
+                        cropRect = c;
+                    } else if (!cropRect.contains(c)) {
+                        cropRect.union(c);
+                        candRect = null; candCount = 0;
+                    } else if (!near(cropRect, c)) {
+                        if (candRect != null && near(candRect, c)) {
+                            if (++candCount >= 3) { cropRect = new Rect(c); candRect = null; candCount = 0; }
+                        } else {
+                            candRect = new Rect(c); candCount = 0;
+                        }
+                    } else {
+                        candRect = null; candCount = 0;
+                    }
+                }
+            }
+            Rect r = cropRect;
+            if (r == null || (r.left <= 0 && r.top <= 0 && r.right >= w && r.bottom >= h)) return b;
+            return Bitmap.createBitmap(b, r.left, r.top, r.width(), r.height());
+        } catch (Throwable t) {
+            return b;
+        }
     }
 
     // اختبار الصوت + إظهار مخرج الصوت الحالي
@@ -693,6 +777,13 @@ public class ReceiverActivity extends Activity {
         switch (cmd) {
             case "beep":
                 beep();
+                break;
+            case "lmode":
+                liveMode = (liveMode + 1) % 3;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_live", liveMode).apply();
+                applyLiveMode();
+                Toast.makeText(this, liveMode == 0 ? "🖥 ملء الشاشة (تمديد)"
+                        : liveMode == 1 ? "🖥 تغطية (قص الحواف)" : "🖥 النسبة الأصلية", Toast.LENGTH_SHORT).show();
                 break;
             case "pause":
                 if (video.getVisibility() == View.VISIBLE) {
@@ -957,13 +1048,13 @@ public class ReceiverActivity extends Activity {
                 front();
                 stopMedia();
                 curType = "stream";
-                image.live = true;
                 idle.setVisibility(View.GONE);
-                image.setVisibility(View.VISIBLE);
+                liveView.setVisibility(View.VISIBLE);
                 showing = true;
             }
         });
         final AtomicBoolean pending = new AtomicBoolean(false);
+        cropRect = null; candRect = null; candCount = 0; cropW = 0; cropH = 0; frameNo = 0;
         try {
             DataInputStream di = new DataInputStream(in);
             byte[] buf = new byte[256 * 1024];
@@ -973,12 +1064,13 @@ public class ReceiverActivity extends Activity {
                 if (buf.length < n) buf = new byte[n];
                 di.readFully(buf, 0, n);
                 if (pending.get()) continue;
-                final Bitmap bm = BitmapFactory.decodeByteArray(buf, 0, n);
-                if (bm == null) continue;
+                final Bitmap raw = BitmapFactory.decodeByteArray(buf, 0, n);
+                if (raw == null) continue;
+                final Bitmap bm = autoCrop(raw);
                 pending.set(true);
                 runOnUiThread(new Runnable() {
                     @Override public void run() {
-                        if (streamId.get() == id) image.setImageBitmap(bm);
+                        if (streamId.get() == id) liveView.setImageBitmap(bm);
                         pending.set(false);
                     }
                 });

@@ -386,7 +386,7 @@ public class SenderActivity extends Activity {
         })));
         mBtn = sbtn(levelText(), 0xFFFFF3C4, 0xFFF59E0B, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
-                mlevel = (mlevel + 1) % 3;
+                mlevel = (mlevel + 1) % 4;
                 sp.edit().putInt("mlevel", mlevel).apply();
                 mBtn.setText(levelText());
                 // تطبيق الدقة مباشرة على العرض الشغال
@@ -417,6 +417,7 @@ public class SenderActivity extends Activity {
         });
         rBtn.setTextSize(14);
         c3.addView(full(rBtn));
+        c3.addView(full(sbtn("🖥 شكل عرض الشاشة: ملء ← تغطية ← أصلي", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("lmode"))));
         l.addView(c3);
 
         // 4) العرض والتكبير
@@ -453,7 +454,7 @@ public class SenderActivity extends Activity {
         c5.addView(levelRow("🔎 حدة الصورة (0 = بدون)", "sha", 0, 10, 0));
         LinearLayout pr = row();
         pr.addView(w(sbtn("📄 وضع الامتحان", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 7, 5, 4, 6); }
+            @Override public void onClick(View v) { preset(10, 5, 8, 5, 6, 7); }
         })));
         pr.addView(w(sbtn("🎬 وضع الصور/ألوان", 0xFFFFE0B2, 0xFFF59E0B, INK, new View.OnClickListener() {
             @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
@@ -690,7 +691,8 @@ public class SenderActivity extends Activity {
 
     private String levelText() {
         return mlevel == 0 ? "📺 دقة الشاشة: منخفضة (854)"
-                : mlevel == 2 ? "📺 دقة الشاشة: عالية (1920)" : "📺 دقة الشاشة: عادية (1280)";
+                : mlevel == 2 ? "📺 دقة الشاشة: Full HD (1920)"
+                : mlevel == 3 ? "📺 دقة الشاشة: فائقة (2560 · أعلى جودة)" : "📺 دقة الشاشة: عادية (1280)";
     }
 
     private String compatText() {
