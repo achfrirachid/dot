@@ -97,7 +97,7 @@ public class ReceiverActivity extends Activity {
     private float zoom = 1f, panX = 0f, panY = 0f;
     private FillVideoView fillView;
     // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
-    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 6, lvlSha = 7;
+    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 1, lvlSha = 7;
     // إضاءة الظلال لعرض الهاتف (الداتا شو كتغمق الألوان): 0 = بلا / 10 = أقوى
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
@@ -151,7 +151,8 @@ public class ReceiverActivity extends Activity {
         lvlBri = sp.getInt("l_bri", 5);
         lvlCon = sp.getInt("l_con", 5);
         lvlSat = sp.getInt("l_sat", 5);
-        lvlTxt = sp.getInt("l_txt", 6);
+        lvlTxt = sp.getInt("l_txt", 1);   // غلظة الكتابة: كتبدا بـ 1 وكتتحفظ
+        quality = sp.getInt("l_quality", 2);
         lvlSha = sp.getInt("l_sha", 7);
         lvlGam = sp.getInt("l_gam", 5);
         if (!sp.getBoolean("vdim6", false)) { sp.edit().remove("l_vdim").putBoolean("vdim6", true).apply(); }
@@ -197,6 +198,7 @@ public class ReceiverActivity extends Activity {
     protected void onResume() {
         super.onResume();
         inFront = true;
+        hideSysDim();
         refreshInfo();
         goImmersive();
     }
@@ -445,7 +447,40 @@ public class ReceiverActivity extends Activity {
         if (!panelOff) showPanel();
     }
 
+    // طبقة تعتيم فوق كل التطبيقات (يوتيوب...) باستعمال إذن "الظهور فوق التطبيقات"
+    private View sysDim;
+
+    private void showSysDim() {
+        try {
+            if (lvlVdim <= 0) return;
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) return;
+            WindowManager wm = (WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE);
+            if (sysDim == null) {
+                sysDim = new View(getApplicationContext());
+                sysDim.setBackgroundColor(Color.BLACK);
+                WindowManager.LayoutParams lp = new WindowManager.LayoutParams(-1, -1,
+                        Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                                : WindowManager.LayoutParams.TYPE_PHONE,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        PixelFormat.TRANSLUCENT);
+                wm.addView(sysDim, lp);
+            }
+            sysDim.setAlpha(Math.min(0.8f, 0.08f * lvlVdim));
+        } catch (Throwable t) {
+            sysDim = null;
+        }
+    }
+
+    private void hideSysDim() {
+        try {
+            if (sysDim != null) ((WindowManager) getApplicationContext().getSystemService(WINDOW_SERVICE)).removeView(sysDim);
+        } catch (Throwable ignored) {}
+        sysDim = null;
+    }
+
     private void applyDim() {
+        if (sysDim != null) { if (lvlVdim <= 0) hideSysDim(); else sysDim.setAlpha(Math.min(0.8f, 0.08f * lvlVdim)); }
         if (dimView == null) return;
         boolean on = idle != null && idle.getVisibility() != View.VISIBLE && lvlVdim > 0;
         dimView.setAlpha(0.08f * lvlVdim);
@@ -613,7 +648,6 @@ public class ReceiverActivity extends Activity {
                 if (left > 0) { f.delete(); reply(out, 400, "incomplete"); return; }
                 runOnUiThread(new Runnable() {
                     @Override public void run() {
-                        if (exam) applyExamLevels();
                         examNext = exam;
                         show(f, type);
                     }
@@ -679,7 +713,7 @@ public class ReceiverActivity extends Activity {
         examFresh = examFull;
         examNext = false;
         if (examFull && glassBg != null) glassBg.setVisibility(View.GONE);
-        if (examFull) applyLevels();
+        if (examFull) { applyExamLevels(); applyLevels(); }
         image.live = false;
         image.setMode(FillImageView.FIT);
         File[] old = f.getParentFile().listFiles();
@@ -918,16 +952,25 @@ public class ReceiverActivity extends Activity {
         return o;
     }
 
-    // إعدادات الامتحان (نفس زر "📄 امتحان"): الحجم كامل، تباين 6، غلظة الكتابة 8، حدة 8
+    // إعدادات الامتحان مؤقتة: كتتطبق غير مدة العرض وما كتبدلش الإعدادات المحفوظة
     private void applyExamLevels() {
         lvlFit = 10; lvlBri = 5; lvlCon = 6; lvlSat = 5; lvlTxt = 8; lvlSha = 8;
-        getSharedPreferences("tvlink", MODE_PRIVATE).edit()
-                .putInt("l_fit", 10).putInt("l_bri", 5).putInt("l_con", 6)
-                .putInt("l_sat", 5).putInt("l_txt", 8).putInt("l_sha", 8).apply();
+    }
+
+    private void restoreLevels() {
+        SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
+        lvlFit = sp.getInt("l_fit", 10);
+        lvlBri = sp.getInt("l_bri", 5);
+        lvlCon = sp.getInt("l_con", 5);
+        lvlSat = sp.getInt("l_sat", 5);
+        lvlTxt = sp.getInt("l_txt", 1);
+        lvlSha = sp.getInt("l_sha", 7);
     }
 
     private void stopMedia() {
+        if (examFull) { restoreLevels(); applyLevels(); }
         examFull = false;
+        hideSysDim();
         try { resetZoom(); } catch (Exception ignored) {}
         try { video.stopPlayback(); } catch (Exception ignored) {}
         video.setVisibility(View.GONE);
@@ -1225,10 +1268,12 @@ public class ReceiverActivity extends Activity {
                 break;
             case "qh":
                 quality = 2;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 2).apply();
                 reload();
                 break;
             case "ql":
                 quality = 1;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 1).apply();
                 reload();
                 break;
             case "vfill":
@@ -1571,6 +1616,7 @@ public class ReceiverActivity extends Activity {
             url = hasQ ? "https://www.youtube.com/results?search_query=" + Uri.encode(q) : "https://www.youtube.com";
             pkgs = new String[]{"com.google.android.youtube.tv", "com.google.android.youtube", "com.liskovsoft.smarttubetv"};
         }
+        showSysDim();
         for (String pk : pkgs) {
             try {
                 Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -1583,6 +1629,7 @@ public class ReceiverActivity extends Activity {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             return;
         } catch (Exception ignored) {}
+        hideSysDim();
         if (web != null) {
             idle.setVisibility(View.GONE); applyDim();
             showing = true;
@@ -1610,10 +1657,12 @@ public class ReceiverActivity extends Activity {
                 .compile("(?:youtu\\.be/|v=|shorts/|embed/)([A-Za-z0-9_-]{11})").matcher(link);
         if (m.find()) id = m.group(1);
         String url = id != null ? "https://www.youtube.com/watch?v=" + id : link;
+        showSysDim();
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
             return;
         } catch (ActivityNotFoundException ignored) {}
+        hideSysDim();
         if (web != null) {
             idle.setVisibility(View.GONE); applyDim();
             showing = true;

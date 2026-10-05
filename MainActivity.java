@@ -21,8 +21,10 @@ public class MainActivity extends Activity {
         boolean choose = getIntent().getBooleanExtra("choose", false);
         if (mode == null) {
             UiModeManager um = (UiModeManager) getSystemService(UI_MODE_SERVICE);
+            // TV Box: leanback، ولا واجهة تلفاز، ولا بلا شاشة لمس، ولا بلا مكالمات (الهاتف عندو شاشة لمس)
             boolean tv = getPackageManager().hasSystemFeature("android.software.leanback")
-                    || (um != null && um.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION);
+                    || (um != null && um.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION)
+                    || !getPackageManager().hasSystemFeature("android.hardware.touchscreen");
             if (tv) mode = "tv";
         }
         if (mode != null && !choose) {

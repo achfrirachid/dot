@@ -80,6 +80,7 @@ public class SenderActivity extends Activity {
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
+        hq = sp.getBoolean("hq", true);
         if (!sp.getBoolean("vdim6", false)) sp.edit().remove("s_vdim").putBoolean("vdim6", true).apply();
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
         bindWifi();
@@ -428,7 +429,7 @@ public class SenderActivity extends Activity {
         left.addView(vw(levelCell("☀️ السطوع", "bri", 1, 10, 5), 1f));
         left.addView(vw(levelCell("◐ التباين", "con", 1, 10, 5), 1f));
         left.addView(vw(levelCell("🎨 الألوان", "sat", 1, 10, 5), 1f));
-        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 6), 1f));
+        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 1), 1f));
         left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 7), 1f));
         left.addView(vw(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5), 1f));
         left.addView(vw(levelCell("🎥 تعتيم الفيديو", "vdim", 0, 10, 6), 1f));
@@ -442,7 +443,7 @@ public class SenderActivity extends Activity {
         left.addView(vw(lr1, 1.1f));
         LinearLayout lr2 = box(false);
         lr2.addView(hw(gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); setLevel("vdim", 6); }
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 1, 0); setLevel("gam", 5); setLevel("vdim", 6); }
         }), 1f));
         lr2.addView(hw(gbtn("⚙️\nالوضع", C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -507,6 +508,7 @@ public class SenderActivity extends Activity {
         qBtn = gbtn(hq ? "🔍\nعالية" : "🔍\nعادية", C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 hq = !hq;
+                sp.edit().putBoolean("hq", hq).apply();
                 qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
                 sendCmd(hq ? "qh" : "ql");
             }
@@ -646,24 +648,6 @@ public class SenderActivity extends Activity {
         setContentView(root);
     }
 
-    // الصورة/الورقة كتتبعت بوضع الامتحان تلقائيا: كنحدثو الأرقام فالواجهة (TV Box كيطبقها بوحدو)
-    private void markExamUi() {
-        final String[] k = {"fit", "bri", "con", "sat", "txt", "sha"};
-        final int[] v = {10, 5, 6, 5, 8, 8};
-        ui.post(new Runnable() {
-            @Override public void run() {
-                SharedPreferences.Editor ed = sp.edit();
-                for (int i = 0; i < k.length; i++) {
-                    ed.putInt("s_" + k[i], v[i]);
-                    TextView tv = lvlViews.get(k[i]);
-                    int[] rg = lvlRange.get(k[i]);
-                    if (tv != null && rg != null) tv.setText(v[i] + "/" + rg[1]);
-                }
-                ed.apply();
-            }
-        });
-    }
-
     private void setStatus(final String s) {
         ui.post(new Runnable() { @Override public void run() { status.setText(s); } });
     }
@@ -694,6 +678,7 @@ public class SenderActivity extends Activity {
                     sendCmd(k + ":" + sp.getInt("s_" + k, lvlDef.get(k)));
                 }
                 sendCmd("glass:" + (glassOn ? 1 : 0));
+                sendCmd(hq ? "qh" : "ql");
             }
         });
     }
@@ -1154,7 +1139,6 @@ public class SenderActivity extends Activity {
                     }
                     if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : type.equals("image") ? ".jpg" : ".mp4";
 
-                    if (!type.equals("video")) markExamUi();
                     for (int attempt = 0; attempt < 2; attempt++) {
                         if (ip == null) ip = findTv(codeNow, 2500);
                         if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
