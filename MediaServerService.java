@@ -128,7 +128,7 @@ public class MediaServerService extends Service {
         FileInputStream fis = null;
         try {
             s.setSoTimeout(15000);
-            try { s.setSendBufferSize(1 << 18); } catch (Exception ignored) {}
+            try { s.setSendBufferSize(1 << 20); } catch (Exception ignored) {}
             InputStream in = s.getInputStream();
             OutputStream out = s.getOutputStream();
             String line = readLine(in);
@@ -150,7 +150,10 @@ public class MediaServerService extends Service {
             // ما كنخدمو غير الملفات اللي داخل مجلد الداتاشو
             String prepDir = new java.io.File(getFilesDir(), "dsh").getAbsolutePath();
             boolean isPrep = doc != null && doc.startsWith("file://" + prepDir + "/") && !doc.contains("..");
-            if (doc == null || (!isPrep && (tree == null || !doc.startsWith(tree)))) { err(out, 403, "Forbidden"); return; }
+            // الملفات المشاركة (content://) مسموحة، والكود السري ديال الربط كيحميها
+            boolean isShared = doc != null && doc.startsWith("content://") && !doc.contains("..");
+            boolean inTree = doc != null && tree != null && doc.startsWith(tree);
+            if (doc == null || (!isPrep && !isShared && !inTree)) { err(out, 403, "Forbidden"); return; }
             long size;
             if (isPrep) {
                 java.io.File pf = new java.io.File(Uri.parse(doc).getPath());
@@ -198,7 +201,7 @@ public class MediaServerService extends Service {
             s.setSoTimeout(0);
             FileChannel ch = fis.getChannel();
             ch.position(start);
-            ByteBuffer bb = ByteBuffer.allocate(256 * 1024);
+            ByteBuffer bb = ByteBuffer.allocate(512 * 1024);
             long left = end - start + 1;
             while (left > 0 && running) {
                 bb.clear();

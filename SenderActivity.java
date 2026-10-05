@@ -80,6 +80,7 @@ public class SenderActivity extends Activity {
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
+        if (!sp.getBoolean("vdim6", false)) sp.edit().remove("s_vdim").putBoolean("vdim6", true).apply();
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
         bindWifi();
         buildUi();
@@ -109,11 +110,67 @@ public class SenderActivity extends Activity {
         if (i == null || !Intent.ACTION_SEND.equals(i.getAction())) return;
         Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM);
         if (u != null) {
-            sendUri(u, null);
+            String mime = i.getType();
+            if (mime == null) mime = getContentResolver().getType(u);
+            String name = displayName(u);
+            String kind = fileKind(name, mime);
+            if ("video".equals(kind) || (kind == null && mime != null && mime.startsWith("video"))) {
+                playFromPhone(u, name);      // الفيديو كيتشغل مباشرة من الهاتف (بلا نسخ)
+            } else {
+                sendUri(u, kind);            // صورة / PDF
+            }
             return;
         }
         String t = i.getStringExtra(Intent.EXTRA_TEXT);
         if (t != null) sendLinkText(t);
+    }
+
+    private String displayName(Uri u) {
+        String name = "video.mp4";
+        try {
+            Cursor cur = getContentResolver().query(u, null, null, null, null);
+            if (cur != null) {
+                if (cur.moveToFirst()) {
+                    int ni = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (ni >= 0 && !cur.isNull(ni)) name = cur.getString(ni);
+                }
+                cur.close();
+            }
+        } catch (Exception ignored) {}
+        return name;
+    }
+
+    private static String fileKind(String name, String mime) {
+        String l = name == null ? "" : name.toLowerCase();
+        if ("application/pdf".equals(mime) || l.endsWith(".pdf")) return "pdf";
+        if ((mime != null && mime.startsWith("image")) || l.matches(".*\\.(jpg|jpeg|png|webp|gif|bmp)$")) return "image";
+        if ((mime != null && mime.startsWith("video")) || l.matches(".*\\.(mp4|m4v|mkv|webm|3gp|avi|mov|ts)$")) return "video";
+        return null;
+    }
+
+    // قفل الواي فاي والمعالج كيبقاو خدامين ملي الفيديو كيتبث من الهاتف: كيقلل التقطيع والتأخر
+    private static android.net.wifi.WifiManager.WifiLock castWifi;
+    private static android.os.PowerManager.WakeLock castWake;
+
+    private void holdCastLocks() {
+        try {
+            if (castWifi == null) {
+                castWifi = ((WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE)).createWifiLock(
+                        Build.VERSION.SDK_INT >= 29 ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY : WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tvlink-cast");
+                castWifi.setReferenceCounted(false);
+            }
+            if (!castWifi.isHeld()) castWifi.acquire();
+            if (castWake == null) {
+                castWake = ((android.os.PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "tvlink:cast");
+                castWake.setReferenceCounted(false);
+            }
+            if (!castWake.isHeld()) castWake.acquire(3 * 60 * 60 * 1000L);
+        } catch (Exception ignored) {}
+    }
+
+    private void releaseCastLocks() {
+        try { if (castWifi != null && castWifi.isHeld()) castWifi.release(); } catch (Exception ignored) {}
+        try { if (castWake != null && castWake.isHeld()) castWake.release(); } catch (Exception ignored) {}
     }
 
     // ---------------- UI (زجاجي · بلا سكرول · 3 أعمدة) ----------------
@@ -133,6 +190,7 @@ public class SenderActivity extends Activity {
     @Override
     protected void onDestroy() {
         for (ObjectAnimator a : anims) a.cancel();
+        if (isFinishing()) releaseCastLocks();
         super.onDestroy();
     }
 
@@ -141,17 +199,6 @@ public class SenderActivity extends Activity {
     private View.OnClickListener ctl(final String cmd) {
         return new View.OnClickListener() {
             @Override public void onClick(View v) { sendCmd(cmd); }
-        };
-    }
-
-    private View.OnClickListener pickL(final String mime, final int req) {
-        return new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType(mime);
-                startActivityForResult(i, req);
-            }
         };
     }
 
@@ -373,6 +420,7 @@ public class SenderActivity extends Activity {
         left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 6), 1f));
         left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 7), 1f));
         left.addView(vw(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5), 1f));
+        left.addView(vw(levelCell("🎥 تعتيم الفيديو", "vdim", 0, 10, 6), 1f));
         LinearLayout lr1 = box(false);
         lr1.addView(hw(gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) { preset(10, 5, 6, 5, 8, 8); }
@@ -383,7 +431,7 @@ public class SenderActivity extends Activity {
         left.addView(vw(lr1, 1.1f));
         LinearLayout lr2 = box(false);
         lr2.addView(hw(gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); }
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); setLevel("vdim", 6); }
         }), 1f));
         lr2.addView(hw(gbtn("⚙️\nالوضع", C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -460,24 +508,13 @@ public class SenderActivity extends Activity {
 
         // ===== العمود اليمين: الإرسال + عرض الهاتف =====
         LinearLayout right = box(true);
-        LinearLayout send = glassCard("📤 أرسل للداتا شو", 0xE6FCE4EC, 0xFFF4A6C0);
-        send.addView(vw(gbtn("🎬  فيديو", C_ORANGE, pickL("video/*", 1)), 1f));
-        send.addView(vw(gbtn("🖼  صورة", C_PINK, pickL("image/*", 2)), 1f));
-        send.addView(vw(gbtn("📄  PDF", C_PURPLE, pickL("application/pdf", 3)), 1f));
-        send.addView(vw(gbtn("🧩 2 أو 3 ملفات\n(الأفواج)", C_AMBER, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("*/*");
-                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "application/pdf"});
-                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                startActivityForResult(i, 4);
-            }
-        }), 1.15f));
-        send.addView(vw(gbtn("📁  مجلد الداتاشو", C_CYAN, new View.OnClickListener() {
-            @Override public void onClick(View v) { openDataShowFolder(); }
-        }), 1.3f));
-        right.addView(vw(send, 5.2f));
+        LinearLayout send = glassCard("📤 الإرسال بالمشاركة", 0xE6FCE4EC, 0xFFF4A6C0);
+        TextView shareHint = label("حمل الفيديو فـ NewPipe\nبالجودة اللي بغيتي،\nومن بعد ضغط «مشاركة»\nوختار TV Link.\nكيتشغل فالحين من الهاتف\nبلا نسخ ولا انتظار.", 12, false);
+        shareHint.setSingleLine(false);
+        shareHint.setGravity(Gravity.CENTER);
+        shareHint.setLineSpacing(0f, 1.1f);
+        send.addView(vw(shareHint, 1f));
+        right.addView(vw(send, 3.2f));
 
         LinearLayout disp = glassCard("📱 عرض الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
@@ -520,7 +557,7 @@ public class SenderActivity extends Activity {
         });
         disp.addView(vw(gBtn, 1.1f));
         disp.addView(vw(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 1f));
-        right.addView(vw(disp, 6.4f));
+        right.addView(vw(disp, 7.6f));
 
         // ===== الشريط السفلي: أهم الأزرار اليومية =====
         LinearLayout bar = glassCard(null, 0xF2FFFDF8, 0xFFE7D7BE);
@@ -598,6 +635,24 @@ public class SenderActivity extends Activity {
         root.addView(content, new FrameLayout.LayoutParams(-1, -1));
         root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         setContentView(root);
+    }
+
+    // الصورة/الورقة كتتبعت بوضع الامتحان تلقائيا: كنحدثو الأرقام فالواجهة (TV Box كيطبقها بوحدو)
+    private void markExamUi() {
+        final String[] k = {"fit", "bri", "con", "sat", "txt", "sha"};
+        final int[] v = {10, 5, 6, 5, 8, 8};
+        ui.post(new Runnable() {
+            @Override public void run() {
+                SharedPreferences.Editor ed = sp.edit();
+                for (int i = 0; i < k.length; i++) {
+                    ed.putInt("s_" + k[i], v[i]);
+                    TextView tv = lvlViews.get(k[i]);
+                    int[] rg = lvlRange.get(k[i]);
+                    if (tv != null && rg != null) tv.setText(v[i] + "/" + rg[1]);
+                }
+                ed.apply();
+            }
+        });
     }
 
     private void setStatus(final String s) {
@@ -831,6 +886,7 @@ public class SenderActivity extends Activity {
     private volatile String cmdCode;
 
     private void sendCmd(final String cmd) {
+        if ("stop".equals(cmd)) releaseCastLocks();
         if (cmdCode == null) cmdCode = code();
         final String c = cmdCode;
         cmdPool.execute(new Runnable() {
@@ -1047,14 +1103,6 @@ public class SenderActivity extends Activity {
             else setStatus("تلغى عرض الشاشة");
             return;
         }
-        if (req == 4) {
-            if (res == RESULT_OK && data != null) sendMulti(data);
-            return;
-        }
-        if (req == 6) {
-            if (res == RESULT_OK && data != null) onTreePicked(data);
-            return;
-        }
         if (res == RESULT_OK && data != null && data.getData() != null) {
             String t = req == 1 ? "video" : req == 2 ? "image" : req == 3 ? "pdf" : null;
             sendUri(data.getData(), t);
@@ -1096,6 +1144,7 @@ public class SenderActivity extends Activity {
                     }
                     if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : type.equals("image") ? ".jpg" : ".mp4";
 
+                    if (!type.equals("video")) markExamUi();
                     for (int attempt = 0; attempt < 2; attempt++) {
                         if (ip == null) ip = findTv(codeNow, 2500);
                         if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
@@ -1117,91 +1166,6 @@ public class SenderActivity extends Activity {
         }).start();
     }
 
-    // ---------------- 2 أو 3 ملفات فنفس الشاشة ----------------
-    private void sendMulti(Intent data) {
-        final List<Uri> us = new ArrayList<Uri>();
-        ClipData cd = data.getClipData();
-        if (cd != null) {
-            for (int i = 0; i < cd.getItemCount() && us.size() < 3; i++) {
-                Uri u = cd.getItemAt(i).getUri();
-                if (u != null) us.add(u);
-            }
-        } else if (data.getData() != null) {
-            us.add(data.getData());
-        }
-        if (us.isEmpty()) return;
-        if (us.size() == 1) { sendUri(us.get(0), null); return; }
-        final String codeNow = codeF != null && !codeF.getText().toString().trim().isEmpty()
-                ? codeF.getText().toString().trim() : sp.getString("paircode", Net.DEFAULT_CODE);
-        final boolean tooMany = cd != null && cd.getItemCount() > 3;
-        new Thread(new Runnable() {
-            @Override public void run() {
-                try {
-                    bindWifi();
-                    if (ip == null) ip = findTv(codeNow, 2500);
-                    if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
-                    int total = us.size();
-                    for (int i = 0; i < total; i++) {
-                        Uri uri = us.get(i);
-                        String name = "file";
-                        long size = -1;
-                        Cursor cur = getContentResolver().query(uri, null, null, null, null);
-                        if (cur != null) {
-                            if (cur.moveToFirst()) {
-                                int ni = cur.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                                int si = cur.getColumnIndex(OpenableColumns.SIZE);
-                                if (ni >= 0 && !cur.isNull(ni)) name = cur.getString(ni);
-                                if (si >= 0 && !cur.isNull(si)) size = cur.getLong(si);
-                            }
-                            cur.close();
-                        }
-                        if (size < 0) {
-                            AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(uri, "r");
-                            if (afd != null) { size = afd.getLength(); afd.close(); }
-                        }
-                        if (size < 0) { setStatus("❌ ما قدرتش نعرف حجم الملف " + (i + 1)); return; }
-                        String mime = getContentResolver().getType(uri);
-                        String type = "image";
-                        if ("application/pdf".equals(mime) || name.toLowerCase().endsWith(".pdf")) type = "pdf";
-                        if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : ".jpg";
-                        setStatus("كنبعث " + (i + 1) + "/" + total + "...");
-                        int rc = uploadMulti(ip, codeNow, uri, type, name, size, i, total);
-                        if (rc == 403) { setStatus("❌ الكود غلط"); return; }
-                        if (rc != 200) { setStatus("❌ خطأ " + rc); return; }
-                    }
-                    setStatus("✅ تبعثو " + total + " فالشاشة" + (tooMany ? " (خدمت غير أول 3)" : ""));
-                } catch (Exception e) {
-                    ip = null;
-                    setStatus("❌ فشل الإرسال. تأكد من الواي فاي واضغط اتصل.");
-                }
-            }
-        }).start();
-    }
-
-    private int uploadMulti(String host, String code, Uri uri, String type, String name, long size,
-                            int slot, int total) throws Exception {
-        URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + "/multi?type=" + type
-                + "&slot=" + slot + "&total=" + total
-                + "&name=" + URLEncoder.encode(name, "UTF-8"));
-        HttpURLConnection c = (HttpURLConnection) url.openConnection();
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setFixedLengthStreamingMode(size);
-        c.setRequestProperty("X-Code", code);
-        c.setConnectTimeout(5000);
-        c.setReadTimeout(180000);
-        InputStream in = getContentResolver().openInputStream(uri);
-        OutputStream o = c.getOutputStream();
-        byte[] buf = new byte[65536];
-        int n;
-        while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
-        o.close();
-        in.close();
-        int rc = c.getResponseCode();
-        c.disconnect();
-        return rc;
-    }
-
     private int upload(String host, String code, Uri uri, String type, String name, long size) throws Exception {
         return uploadTo("/send", "", host, code, uri, type, name, size);
     }
@@ -1218,6 +1182,7 @@ public class SenderActivity extends Activity {
         } catch (Exception ignored) {}
         try {
             URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + path + "?type=" + type
+                    + (type.equals("video") ? "" : "&exam=1")
                     + "&name=" + URLEncoder.encode(name, "UTF-8"));
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             c.setRequestMethod("POST");
@@ -1280,143 +1245,10 @@ public class SenderActivity extends Activity {
         return null;
     }
 
-    private void pickTree() {
-        android.widget.Toast.makeText(this, "اختار أو أنشئ مجلد سميتو: مجلد الداتاشو", android.widget.Toast.LENGTH_LONG).show();
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(i, 6);
-    }
-
-    private void onTreePicked(Intent data) {
-        Uri t = data.getData();
-        if (t == null) return;
-        try { getContentResolver().takePersistableUriPermission(t, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
-        sp.edit().putString("tree", t.toString()).apply();
-        openDataShowFolder();
-    }
-
-    private static String fileKind(String name, String mime) {
-        String l = name.toLowerCase();
-        if ("application/pdf".equals(mime) || l.endsWith(".pdf")) return "pdf";
-        if ((mime != null && mime.startsWith("image")) || l.matches(".*\\.(jpg|jpeg|png|webp|gif|bmp)$")) return "image";
-        if ((mime != null && mime.startsWith("video")) || l.matches(".*\\.(mp4|m4v|mkv|webm|3gp|avi|mov|ts)$")) return "video";
-        return null;
-    }
-
-    private void openDataShowFolder() {
-        final String t = sp.getString("tree", null);
-        if (t == null) { pickTree(); return; }
-        final List<String[]> items = new ArrayList<String[]>();   // {نوع, اسم, uri, حجم}
-        try {
-            Uri tree = Uri.parse(t);
-            Uri kids = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree,
-                    android.provider.DocumentsContract.getTreeDocumentId(tree));
-            Cursor cu = getContentResolver().query(kids, new String[]{
-                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                    android.provider.DocumentsContract.Document.COLUMN_SIZE,
-                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
-            if (cu != null) {
-                while (cu.moveToNext()) {
-                    String k = fileKind(cu.getString(1), cu.getString(3));
-                    if (k == null) continue;
-                    Uri du = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, cu.getString(0));
-                    items.add(new String[]{k, cu.getString(1), du.toString(), String.valueOf(cu.getLong(2))});
-                }
-                cu.close();
-            }
-        } catch (Exception e) {
-            sp.edit().remove("tree").apply();
-            setStatus("❌ ما قدرتش نقرا المجلد. اختارو من جديد.");
-            pickTree();
-            return;
-        }
-        java.util.Collections.sort(items, new java.util.Comparator<String[]>() {
-            @Override public int compare(String[] a, String[] b) { return a[1].compareToIgnoreCase(b[1]); }
-        });
-        final android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
-        b.setTitle("📁 مجلد الداتاشو (" + items.size() + ")");
-        b.setNeutralButton("📂 تغيير المجلد", new android.content.DialogInterface.OnClickListener() {
-            @Override public void onClick(android.content.DialogInterface d, int w) { pickTree(); }
-        });
-        b.setNegativeButton("إغلاق", null);
-        b.setPositiveButton("⚙ تجهيز للداتاشو", new android.content.DialogInterface.OnClickListener() {
-            @Override public void onClick(android.content.DialogInterface d, int w) { startPrep(items); }
-        });
-        if (items.isEmpty()) {
-            b.setMessage("المجلد خاوي. حمل الفيديوهات بـ NewPipe فهاد المجلد (صيغة MP4)، ومن بعد رجع هنا.");
-            b.show();
-            return;
-        }
-        final List<String> labels = new ArrayList<String>();
-        for (String[] it : items) {
-            long mb = 0;
-            try { mb = Long.parseLong(it[3]) >> 20; } catch (Exception ignored) {}
-            String icon = it[0].equals("video") ? "🎬" : it[0].equals("pdf") ? "📄" : "🖼";
-            String ready = (it[0].equals("video") && preparedFile(it) != null) ? " ✅" : "";
-            labels.add(icon + "  " + it[1] + ready + (mb > 0 ? "   (" + mb + " MB)" : ""));
-        }
-        android.widget.ListView lv = new android.widget.ListView(this);
-        lv.setAdapter(new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels));
-        lv.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        b.setView(lv);
-        final android.app.AlertDialog dlg = b.create();
-        lv.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
-            @Override public void onItemClick(android.widget.AdapterView<?> a, View v, int pos, long id) {
-                String[] it = items.get(pos);
-                dlg.dismiss();
-                if (it[0].equals("video")) {
-                    java.io.File pf = preparedFile(it);
-                    if (pf != null) playFromPhone(Uri.fromFile(pf), it[1]);
-                    else playFromPhone(Uri.parse(it[2]), it[1]);
-                }
-                else sendUri(Uri.parse(it[2]), it[0]);
-            }
-        });
-        dlg.show();
-    }
-
-    // النسخة الجاهزة (H.264 576p) إلا كانت كاينة
-    private java.io.File preparedFile(String[] it) {
-        long sz = 0;
-        try { sz = Long.parseLong(it[3]); } catch (Exception ignored) {}
-        java.io.File f = Prep.outFor(this, it[1], sz);
-        return (f.exists() && f.length() > 0) ? f : null;
-    }
-
-    private Prep prep;
-
-    // تجهيز كل الفيديوهات اللي بعدا ما تجهزوش: كيتحولو مرة وحدة فالهاتف، وفالقسم كيتشغلو فالحين
-    private void startPrep(List<String[]> items) {
-        List<Prep.Job> jobs = new ArrayList<Prep.Job>();
-        for (String[] it : items) {
-            if (!it[0].equals("video")) continue;
-            long sz = 0;
-            try { sz = Long.parseLong(it[3]); } catch (Exception ignored) {}
-            java.io.File o = Prep.outFor(this, it[1], sz);
-            if (!(o.exists() && o.length() > 0)) jobs.add(new Prep.Job(Uri.parse(it[2]), it[1], o));
-        }
-        if (jobs.isEmpty()) { setStatus("✅ كل الفيديوهات جاهزة"); return; }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setStatus("⚙ كنبدا التجهيز (" + jobs.size() + " فيديو)... خلي الشاشة مفتوحة");
-        prep = new Prep(this, jobs, new Prep.Listener() {
-            @Override public void onProgress(int index, int total, String name, int percent) {
-                setStatus("⚙ " + index + "/" + total + " · " + percent + "%  " + name);
-            }
-            @Override public void onItemDone(String name, boolean ok) {
-                if (!ok) setStatus("❌ ما تجهزش: " + name);
-            }
-            @Override public void onAllDone(int okCount, int total) {
-                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-                setStatus("✅ تجهزو " + okCount + "/" + total + " — ضغط على 📁 مجلد الداتاشو وختار الفيديو (✅)");
-            }
-        });
-        prep.start();
-    }
-
     // الفيديو كيبقى فالهاتف وكيتبث لـ TV Box بالشبكة المحلية: كيبدا فالحين، وكتقدر تقدم وترجع فيه
     private void playFromPhone(final Uri doc, final String name) {
         final String c = code();
+        holdCastLocks();
         setStatus("كنجهز " + name + "...");
         new Thread(new Runnable() {
             @Override public void run() {
