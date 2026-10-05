@@ -31,6 +31,9 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
+import android.util.TypedValue;
+import android.widget.FrameLayout;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -62,7 +65,8 @@ public class SenderActivity extends Activity {
     private Button mBtn;
     private int mlevel = 1;
     private boolean compat = false, autoRot = true;
-    private Button cBtn, rBtn;
+    private Button cBtn, rBtn, gBtn;
+    private boolean glassOn = true;
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile String ip;
@@ -75,6 +79,7 @@ public class SenderActivity extends Activity {
         mlevel = sp.getInt("mlevel2", 2);
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
+        glassOn = sp.getInt("s_glass", 1) == 1;
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
         bindWifi();
         buildUi();
@@ -111,57 +116,25 @@ public class SenderActivity extends Activity {
         if (t != null) sendLinkText(t);
     }
 
-    // ---------------- UI ----------------
-    private Button btn(String t, View.OnClickListener l) {
-        Button bt = new Button(this);
-        bt.setText(t);
-        bt.setOnClickListener(l);
-        return bt;
+    // ---------------- UI (زجاجي · بلا سكرول · 3 أعمدة) ----------------
+    private static final int WHITE = 0xFFFFFFFF;
+    private final List<ObjectAnimator> anims = new ArrayList<ObjectAnimator>();
+    // ألوان الأزرار الزجاجية (RGB)
+    private static final int C_BLUE = 0x3B82F6, C_GREEN = 0x22C55E, C_RED = 0xEF4444, C_AMBER = 0xF59E0B,
+            C_PINK = 0xEC4899, C_PURPLE = 0xA855F7, C_CYAN = 0x06B6D4, C_SLATE = 0x94A3B8;
+
+    @Override
+    protected void onDestroy() {
+        for (ObjectAnimator a : anims) a.cancel();
+        super.onDestroy();
     }
 
-    private Button weight(Button b) {
-        b.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1f));
-        return b;
-    }
+    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private View.OnClickListener ctl(final String cmd) {
         return new View.OnClickListener() {
             @Override public void onClick(View v) { sendCmd(cmd); }
         };
-    }
-
-    // زر صوت: ضغطة وحدة = خطوة، والضغط الطويل كيعاود (للأزرار + و −)
-    private Button volBtn(String text, final String cmd, final boolean repeat) {
-        final Runnable[] loop = new Runnable[1];
-        loop[0] = new Runnable() {
-            @Override public void run() { sendCmd(cmd); ui.postDelayed(loop[0], 300); }
-        };
-        Button bt = compact(sbtn(text, 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
-        bt.setOnTouchListener(new View.OnTouchListener() {
-            @Override public boolean onTouch(View v, MotionEvent e) {
-                switch (e.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        v.setPressed(true);
-                        if (repeat) loop[0].run(); else sendCmd(cmd);
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        v.setPressed(false);
-                        ui.removeCallbacks(loop[0]);
-                        return true;
-                }
-                return false;
-            }
-        });
-        return bt;
-    }
-
-    // أزرار الصوت ديال الهاتف كتتحكم فصوت TV Box ملي تكون متصل وهاد الشاشة مفتوحة
-    @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_UP) { sendCmd("volup"); return true; }
-        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) { sendCmd("voldown"); return true; }
-        return super.onKeyDown(keyCode, event);
     }
 
     private View.OnClickListener pickL(final String mime, final int req) {
@@ -175,16 +148,13 @@ public class SenderActivity extends Activity {
         };
     }
 
-    // ---------------- تصميم الواجهة (مزوق، بطاقات شفافة، ألوان باستيل) ----------------
-    private final List<ObjectAnimator> anims = new ArrayList<ObjectAnimator>();
-
+    // أزرار الصوت ديال الهاتف كتتحكم فصوت TV Box ملي تكون متصل وهاد الشاشة مفتوحة
     @Override
-    protected void onDestroy() {
-        for (ObjectAnimator a : anims) a.cancel();
-        super.onDestroy();
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_UP) { sendCmd("volup"); return true; }
+        if (ip != null && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) { sendCmd("voldown"); return true; }
+        return super.onKeyDown(keyCode, event);
     }
-
-    private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 
     private GradientDrawable shape(int fill, int stroke, int radiusDp, int strokeDp) {
         GradientDrawable g = new GradientDrawable();
@@ -194,165 +164,298 @@ public class SenderActivity extends Activity {
         return g;
     }
 
-    private int darker(int c) {
-        float[] hsv = new float[3];
-        Color.colorToHSV(c, hsv);
-        hsv[2] *= 0.85f;
-        return Color.HSVToColor(Color.alpha(c), hsv);
+    // زجاج: تدرج شفاف من لون + حافة بيضاء لامعة
+    private GradientDrawable glassShape(int tint, int a1, int a2, int strokeColor, int radiusDp) {
+        int rgb = tint & 0xFFFFFF;
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{(a1 << 24) | rgb, (a2 << 24) | rgb});
+        g.setCornerRadius(dp(radiusDp));
+        g.setStroke(dp(1), strokeColor);
+        return g;
     }
 
-    private StateListDrawable pill(int fill, int stroke) {
+    private StateListDrawable glassState(int tint) {
         StateListDrawable s = new StateListDrawable();
-        s.addState(new int[]{android.R.attr.state_pressed}, shape(darker(fill), stroke, 22, 2));
-        s.addState(new int[]{}, shape(fill, stroke, 22, 2));
+        s.addState(new int[]{android.R.attr.state_pressed}, glassShape(tint, 0xDD, 0xAA, 0xFFFFFFFF, 16));
+        s.addState(new int[]{}, glassShape(tint, 0x88, 0x44, 0xB0FFFFFF, 16));
         return s;
     }
 
-    private Button sbtn(String t, int fill, int stroke, int textColor, View.OnClickListener l) {
+    private void autosize(TextView t, int minSp, int maxSp) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            t.setAutoSizeTextTypeUniformWithConfiguration(minSp, maxSp, 1, TypedValue.COMPLEX_UNIT_SP);
+        } else {
+            t.setTextSize(minSp + 3);
+        }
+    }
+
+    private Button gbtn(String t, int tint, View.OnClickListener l) {
         Button b = new Button(this);
         b.setText(t);
         b.setAllCaps(false);
-        b.setTextColor(textColor);
-        b.setTextSize(16);
+        b.setTextColor(WHITE);
         b.setTypeface(null, Typeface.BOLD);
-        b.setBackground(pill(fill, stroke));
-        b.setStateListAnimator(null);
-        b.setPadding(dp(10), dp(12), dp(10), dp(12));
+        b.setShadowLayer(3f, 0f, 1f, 0xAA000000);
+        b.setIncludeFontPadding(false);
+        b.setGravity(Gravity.CENTER);
+        b.setMaxLines(2);
+        b.setPadding(dp(2), dp(2), dp(2), dp(2));
         b.setMinHeight(0);
-        b.setMinimumHeight(dp(48));
+        b.setMinimumHeight(0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setBackground(glassState(tint));
+        b.setStateListAnimator(null);
+        autosize(b, 8, 15);
         if (l != null) b.setOnClickListener(l);
         return b;
     }
 
-    private Button compact(Button b) {
-        b.setTextSize(15);
-        b.setPadding(dp(6), dp(6), dp(6), dp(6));
-        b.setMinimumHeight(dp(42));
+    // زر كيبعت الأمر مباشرة، والضغط المستمر كيعاود (للأسهم والصوت والتكبير)
+    private Button holdBtn(String text, final String cmd, int tint, final int repeatMs) {
+        final Runnable[] loop = new Runnable[1];
+        loop[0] = new Runnable() {
+            @Override public void run() { sendCmd(cmd); ui.postDelayed(loop[0], repeatMs); }
+        };
+        Button bt = gbtn(text, tint, null);
+        bt.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        v.setPressed(true);
+                        if (repeatMs > 0) loop[0].run(); else sendCmd(cmd);
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        v.setPressed(false);
+                        ui.removeCallbacks(loop[0]);
+                        return true;
+                }
+                return false;
+            }
+        });
+        return bt;
+    }
+
+    private LinearLayout box(boolean vertical) {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(vertical ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         return b;
     }
 
-    private Button tile(String t, int fill, int stroke, View.OnClickListener l) {
-        Button b = sbtn(t, fill, stroke, 0xFF2D2D3A, l);
-        b.setTextSize(17);
-        b.setMinimumHeight(dp(86));
-        return b;
-    }
-
-    private LinearLayout row() {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setPadding(0, dp(3), 0, dp(3));
-        return r;
-    }
-
-    private View w(View v) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
-        lp.setMargins(dp(3), 0, dp(3), 0);
+    // خانة فعمود: كتاخد حصة من الطول
+    private <T extends View> T vw(T v, float weight) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, weight);
+        lp.setMargins(dp(2), dp(2), dp(2), dp(2));
         v.setLayoutParams(lp);
         return v;
     }
 
-    private View full(View v) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(dp(3), dp(4), dp(3), dp(4));
+    // خانة فصف: كتاخد حصة من العرض
+    private <T extends View> T hw(T v, float weight) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, weight);
+        lp.setMargins(dp(2), dp(2), dp(2), dp(2));
         v.setLayoutParams(lp);
         return v;
     }
 
-    private void field(EditText e) {
-        e.setBackground(shape(0xFFFFFFFF, 0xFFCBD5E1, 16, 1));
-        e.setPadding(dp(14), dp(10), dp(14), dp(10));
-        e.setGravity(Gravity.CENTER);
-        e.setTextColor(0xFF2D2D3A);
-        full(e);
+    private TextView label(String t, int sizeSp, boolean bold) {
+        TextView x = new TextView(this);
+        x.setText(t);
+        x.setTextSize(sizeSp);
+        x.setTextColor(WHITE);
+        x.setGravity(Gravity.CENTER);
+        x.setSingleLine(true);
+        x.setShadowLayer(3f, 0f, 1f, 0xAA000000);
+        if (bold) x.setTypeface(null, Typeface.BOLD);
+        return x;
     }
 
-    private LinearLayout card(String title, int fill, int stroke) {
-        LinearLayout c = new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setBackground(shape(fill, stroke, 26, 2));
-        c.setPadding(dp(12), dp(10), dp(12), dp(12));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(8), 0, dp(8));
-        c.setLayoutParams(lp);
+    private LinearLayout glassCard(String title) {
+        LinearLayout c = box(true);
+        c.setBackground(glassShape(0xFFFFFF, 0x40, 0x14, 0x70FFFFFF, 20));
+        c.setPadding(dp(3), dp(4), dp(3), dp(3));
         if (title != null) {
-            TextView t = new TextView(this);
-            t.setText(title);
-            t.setTextSize(19);
-            t.setTypeface(null, Typeface.BOLD);
-            t.setTextColor(0xFF3B3B4F);
-            t.setGravity(Gravity.CENTER);
-            t.setPadding(0, 0, 0, dp(6));
-            c.addView(t);
+            TextView t = label(title, 12, true);
+            c.addView(t, new LinearLayout.LayoutParams(-1, -2));
         }
         return c;
     }
 
+    private void field(EditText e, int sizeSp) {
+        e.setBackground(glassShape(0xFFFFFF, 0x38, 0x22, 0x99FFFFFF, 14));
+        e.setPadding(dp(4), 0, dp(4), 0);
+        e.setGravity(Gravity.CENTER);
+        e.setTextColor(WHITE);
+        e.setHintTextColor(0xAAFFFFFF);
+        e.setTextSize(sizeSp);
+        e.setSingleLine(true);
+    }
+
+    private View blob(int color, int sizeDp, int gravity, int mx, int my, float travelDp, long ms) {
+        View v = new View(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(color);
+        v.setBackground(g);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp), gravity);
+        lp.setMargins(dp(mx), dp(my), dp(mx), dp(my));
+        v.setLayoutParams(lp);
+        ObjectAnimator a = ObjectAnimator.ofFloat(v, "translationY", 0f, dp((int) travelDp));
+        a.setDuration(ms);
+        a.setRepeatCount(ValueAnimator.INFINITE);
+        a.setRepeatMode(ValueAnimator.REVERSE);
+        a.start();
+        anims.add(a);
+        return v;
+    }
+
     private void buildUi() {
-        final int INK = 0xFF2D2D3A;
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setPadding(dp(14), dp(10), dp(14), dp(8));
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
 
-        // زخرفة متحركة فوق
-        LinearLayout deco = row();
-        deco.setGravity(Gravity.CENTER);
-        String[] em = {"🌸", "💛", "😄", "🌸", "💛", "😄", "🌸"};
-        for (int i = 0; i < em.length; i++) {
-            TextView e = new TextView(this);
-            e.setText(em[i]);
-            e.setTextSize(26);
-            e.setGravity(Gravity.CENTER);
-            deco.addView(w(e));
-            ObjectAnimator a = ObjectAnimator.ofFloat(e, "translationY", 0f, -dp(6));
-            a.setDuration(1100 + i * 140);
-            a.setRepeatCount(ValueAnimator.INFINITE);
-            a.setRepeatMode(ValueAnimator.REVERSE);
-            a.start();
-            anims.add(a);
-        }
-        l.addView(deco);
+        // ===== الخانة العلوية: الاتصال بـ TV Box (صغيرة وكلماتها ظاهرة) =====
+        LinearLayout top = glassCard(null);
+        top.setPadding(dp(8), dp(3), dp(8), dp(4));
+        LinearLayout t1 = box(false);
+        t1.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = label("TV Link 📱✨📺", 15, true);
+        t1.addView(title, new LinearLayout.LayoutParams(-2, -2));
+        status = new TextView(this);
+        status.setTextSize(11);
+        status.setTextColor(0xFFE0F2FE);
+        status.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        status.setMaxLines(2);
+        status.setText("دخل الكود واضغط اتصال");
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, -2, 1f);
+        slp.setMargins(dp(8), 0, 0, 0);
+        t1.addView(status, slp);
+        top.addView(t1, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView title = new TextView(this);
-        title.setText("TV Link 📱 ← 📺");
-        title.setTextSize(28);
-        title.setTypeface(null, Typeface.BOLD);
-        title.setTextColor(0xFF1E3A8A);
-        title.setGravity(Gravity.CENTER);
-        l.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText("🌷 شاشة كبيرة · جودة عالية · تحكم كامل 🌼");
-        sub.setTextSize(14);
-        sub.setTextColor(0xFF7A6F5E);
-        sub.setGravity(Gravity.CENTER);
-        l.addView(sub);
-
-        // 1) الاتصال
-        LinearLayout c1 = card("🔗 الاتصال بـ TV Box", 0xE6EEF2FF, 0xFF93B4F5);
+        LinearLayout t2 = box(false);
         codeF = new EditText(this);
-        codeF.setHint("كود TV Box");
+        codeF.setHint("🔑 كود TV Box");
         codeF.setInputType(InputType.TYPE_CLASS_NUMBER);
         codeF.setText(sp.getString("paircode", Net.DEFAULT_CODE));
-        codeF.setTextSize(24);
-        field(codeF);
-        c1.addView(codeF);
+        field(codeF, 15);
         ipF = new EditText(this);
-        ipF.setHint("IP ديال TV Box (اختياري)");
+        ipF.setHint("🌐 IP (اختياري)");
         ipF.setInputType(InputType.TYPE_CLASS_PHONE);
-        ipF.setTextSize(16);
-        field(ipF);
-        c1.addView(ipF);
-        l.addView(c1);
+        field(ipF, 13);
+        Button cn = gbtn("🔗 اتصال", C_BLUE, new View.OnClickListener() {
+            @Override public void onClick(View v) { connect(); }
+        });
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(38), 1.1f);
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(38), 1.1f);
+        LinearLayout.LayoutParams p3 = new LinearLayout.LayoutParams(0, dp(38), 0.9f);
+        p1.setMargins(dp(2), dp(2), dp(2), dp(2));
+        p2.setMargins(dp(2), dp(2), dp(2), dp(2));
+        p3.setMargins(dp(2), dp(2), dp(2), dp(2));
+        t2.addView(codeF, p1);
+        t2.addView(ipF, p2);
+        t2.addView(cn, p3);
+        top.addView(t2, new LinearLayout.LayoutParams(-1, -2));
 
-        // 2) إرسال الملفات
-        LinearLayout c2 = card("📤 أرسل للداتا شو", 0xE6FCE4EC, 0xFFF4A6C0);
-        LinearLayout pk = row();
-        pk.addView(w(tile("🎬\nفيديو", 0xFFFFE0B2, 0xFFF59E0B, pickL("video/*", 1))));
-        pk.addView(w(tile("🖼\nصورة", 0xFFF8BBD0, 0xFFEC4899, pickL("image/*", 2))));
-        pk.addView(w(tile("📄\nPDF", 0xFFE1BEE7, 0xFF9333EA, pickL("application/pdf", 3))));
-        c2.addView(pk);
-        c2.addView(full(sbtn("🧩 2 أو 3 صور/PDF فنفس الشاشة (الأفواج)", 0xFFFFF3C4, 0xFFF59E0B, INK,
-                new View.OnClickListener() {
+        // ===== العمود اليسار: ضبط الصورة =====
+        LinearLayout left = glassCard("🎛 ضبط الصورة");
+        left.addView(vw(levelCell("📐 الحجم", "fit", 1, 10, 10), 1f));
+        left.addView(vw(levelCell("☀️ السطوع", "bri", 1, 10, 5), 1f));
+        left.addView(vw(levelCell("◐ التباين", "con", 1, 10, 5), 1f));
+        left.addView(vw(levelCell("🎨 الألوان", "sat", 1, 10, 5), 1f));
+        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 6), 1f));
+        left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 7), 1f));
+        left.addView(vw(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5), 1f));
+        LinearLayout lr1 = box(false);
+        lr1.addView(hw(gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) { preset(10, 5, 6, 5, 8, 8); }
+        }), 1f));
+        lr1.addView(hw(gbtn("🎬\nألوان", C_AMBER, new View.OnClickListener() {
+            @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
+        }), 1f));
+        left.addView(vw(lr1, 1.1f));
+        LinearLayout lr2 = box(false);
+        lr2.addView(hw(gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); }
+        }), 1f));
+        lr2.addView(hw(gbtn("⚙️\nالوضع", C_PURPLE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                sp.edit().remove("mode").apply();
+                startActivity(new Intent(SenderActivity.this, MainActivity.class).putExtra("choose", true));
+                finish();
+            }
+        }), 1f));
+        left.addView(vw(lr2, 1.1f));
+
+        // ===== العمود الوسط: الأسهم + التكبير + الصوت + التشغيل =====
+        LinearLayout center = glassCard("🎮 تحكم");
+        LinearLayout dpad = box(true);
+        LinearLayout d1 = box(false);
+        d1.addView(hw(new View(this), 1f));
+        d1.addView(hw(holdBtn("▲", "pu", C_AMBER, 220), 1f));
+        d1.addView(hw(new View(this), 1f));
+        LinearLayout d2 = box(false);
+        d2.addView(hw(holdBtn("◀", "pl", C_AMBER, 220), 1f));
+        d2.addView(hw(gbtn("🎯", C_PINK, ctl("zreset")), 1f));
+        d2.addView(hw(holdBtn("▶", "pr", C_AMBER, 220), 1f));
+        LinearLayout d3 = box(false);
+        d3.addView(hw(new View(this), 1f));
+        d3.addView(hw(holdBtn("▼", "pd", C_AMBER, 220), 1f));
+        d3.addView(hw(new View(this), 1f));
+        dpad.addView(vw(d1, 1f));
+        dpad.addView(vw(d2, 1f));
+        dpad.addView(vw(d3, 1f));
+        for (int i = 0; i < 3; i++) {
+            LinearLayout rr = (LinearLayout) dpad.getChildAt(i);
+            for (int j = 0; j < 3; j++) {
+                View ch = rr.getChildAt(j);
+                if (ch instanceof Button) autosize((Button) ch, 14, 30);
+            }
+        }
+        center.addView(vw(dpad, 3.3f));
+
+        LinearLayout zr = box(false);
+        zr.addView(hw(holdBtn("🔍➖", "zout", C_CYAN, 350), 1f));
+        zr.addView(hw(gbtn("1x", C_CYAN, ctl("zreset")), 0.8f));
+        zr.addView(hw(holdBtn("🔍➕", "zin", C_CYAN, 350), 1f));
+        center.addView(vw(zr, 1f));
+
+        LinearLayout vr = box(false);
+        vr.addView(hw(holdBtn("🔉\n−", "voldown", C_BLUE, 300), 1f));
+        vr.addView(hw(holdBtn("🔇", "mute", C_BLUE, 0), 0.8f));
+        vr.addView(hw(holdBtn("🔊\n+", "volup", C_BLUE, 300), 1f));
+        center.addView(vw(vr, 1.15f));
+
+        LinearLayout mr = box(false);
+        mr.addView(hw(gbtn("⏪\n10ث", C_BLUE, ctl("back")), 1f));
+        mr.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 0.9f));
+        mr.addView(hw(gbtn("10ث\n⏩", C_BLUE, ctl("fwd")), 1f));
+        center.addView(vw(mr, 1f));
+
+        LinearLayout pg = box(false);
+        pg.addView(hw(gbtn("◀\nصفحة", C_AMBER, ctl("prev")), 1f));
+        pg.addView(hw(gbtn("⏹\nوقف", C_RED, ctl("stop")), 0.9f));
+        pg.addView(hw(gbtn("صفحة\n▶", C_AMBER, ctl("next")), 1f));
+        center.addView(vw(pg, 1f));
+
+        qBtn = gbtn(hq ? "🔍\nعالية" : "🔍\nعادية", C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                hq = !hq;
+                qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
+                sendCmd(hq ? "qh" : "ql");
+            }
+        });
+        LinearLayout ex = box(false);
+        ex.addView(hw(gbtn("🔊\nMAX", C_BLUE, ctl("volmax")), 1f));
+        ex.addView(hw(gbtn("🖼\nصورة", C_PINK, ctl("imode")), 1f));
+        ex.addView(hw(qBtn, 1f));
+        center.addView(vw(ex, 1f));
+
+        // ===== العمود اليمين: الإرسال + عرض الهاتف =====
+        LinearLayout right = box(true);
+        LinearLayout send = glassCard("📤 أرسل للداتا شو");
+        send.addView(vw(gbtn("🎬  فيديو", C_AMBER, pickL("video/*", 1)), 1f));
+        send.addView(vw(gbtn("🖼  صورة", C_PINK, pickL("image/*", 2)), 1f));
+        send.addView(vw(gbtn("📄  PDF", C_PURPLE, pickL("application/pdf", 3)), 1f));
+        send.addView(vw(gbtn("🧩 2 أو 3 ملفات\n(الأفواج)", C_CYAN, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -361,13 +464,11 @@ public class SenderActivity extends Activity {
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 startActivityForResult(i, 4);
             }
-        })));
-        l.addView(c2);
+        }), 1.15f));
+        right.addView(vw(send, 4.1f));
 
-        // 3) مشاركة شاشة الهاتف
-        LinearLayout c3 = card("📱 عرض شاشة الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
-        LinearLayout mr = row();
-        mBtn = sbtn(levelText(), 0xFFFFF3C4, 0xFFF59E0B, INK, new View.OnClickListener() {
+        LinearLayout disp = glassCard("📱 عرض الهاتف");
+        mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 mlevel = (mlevel + 1) % 4;
                 sp.edit().putInt("mlevel2", mlevel).apply();
@@ -377,10 +478,8 @@ public class SenderActivity extends Activity {
                         .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}
             }
         });
-        mBtn.setTextSize(14);
-        mr.addView(full(mBtn));
-        c3.addView(mr);
-        cBtn = sbtn(compatText(), 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
+        disp.addView(vw(mBtn, 1f));
+        cBtn = gbtn(compatText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 compat = !compat;
                 sp.edit().putBoolean("compat", compat).apply();
@@ -388,9 +487,8 @@ public class SenderActivity extends Activity {
                 setStatus(compat ? "وضع التوافق مفعل. وقف العرض وبداه من جديد." : "وضع التوافق ملغى. وقف العرض وبداه من جديد.");
             }
         });
-        cBtn.setTextSize(14);
-        c3.addView(full(cBtn));
-        rBtn = sbtn(rotText(), 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
+        disp.addView(vw(cBtn, 1f));
+        rBtn = gbtn(rotText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 autoRot = !autoRot;
                 sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").apply();
@@ -398,167 +496,71 @@ public class SenderActivity extends Activity {
                 applyAutoRotate();
             }
         });
-        rBtn.setTextSize(14);
-        c3.addView(full(rBtn));
-        c3.addView(full(sbtn("🖥 شكل عرض الشاشة: ملء ← تغطية ← أصلي", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("lmode"))));
-        l.addView(c3);
-
-        // 5) ضبط الصورة والألوان والكتابة (كيتحفظ فـ TV Box ويتطبق تلقائيا)
-        LinearLayout c5 = card("🎛 ضبط الصورة (يتحفظ فـ TV Box)", 0xE6E3F2FD, 0xFF64B5F6);
-        c5.addView(levelRow("📐 الحجم (10 = ملء الشاشة)", "fit", 1, 10, 10));
-        c5.addView(levelRow("☀️ السطوع", "bri", 1, 10, 5));
-        c5.addView(levelRow("◐ التباين", "con", 1, 10, 5));
-        c5.addView(levelRow("🎨 الألوان", "sat", 1, 10, 5));
-        c5.addView(levelRow("🖋 غلظة الكتابة (0 = عادية)", "txt", 0, 10, 6));
-        c5.addView(levelRow("🔎 حدة الصورة (0 = بدون)", "sha", 0, 10, 7));
-        c5.addView(levelRow("🌓 إضاءة ألوان عرض الهاتف (وجوه/أحمر)", "gam", 0, 10, 5));
-        LinearLayout pr = row();
-        pr.addView(w(sbtn("📄 وضع الامتحان", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 6, 7); }
-        })));
-        pr.addView(w(sbtn("🎬 وضع الصور/ألوان", 0xFFFFE0B2, 0xFFF59E0B, INK, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
-        })));
-        c5.addView(pr);
-        c5.addView(full(sbtn("↺ رجوع للقيم الافتراضية", 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
+        disp.addView(vw(rBtn, 1f));
+        disp.addView(vw(gbtn("🖥 الشكل\nملء ← تغطية ← أصلي", C_AMBER, ctl("lmode")), 1.15f));
+        gBtn = gbtn(glassText(), C_PINK, new View.OnClickListener() {
             @Override public void onClick(View v) {
-                preset(10, 5, 5, 5, 0, 0);
-                setLevel("gam", 5);
-            }
-        })));
-        c5.addView(full(sbtn("🔊 اختبار الصوت (يبين المخرج)", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("beep"))));
-        l.addView(c5);
-
-        l.addView(full(sbtn("⚙️ تغيير الوضع", 0xFF2F4B7C, 0xFF2F4B7C, 0xFFFFFFFF, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                sp.edit().remove("mode").apply();
-                startActivity(new Intent(SenderActivity.this, MainActivity.class).putExtra("choose", true));
-                finish();
-            }
-        })));
-        TextView foot = new TextView(this);
-        foot.setText("🌷🌼🌸🌼🌷");
-        foot.setTextSize(22);
-        foot.setGravity(Gravity.CENTER);
-        l.addView(foot);
-
-        ScrollView sv = new ScrollView(this);
-        sv.setVerticalScrollBarEnabled(false);
-        sv.addView(l);
-
-        final int BL = 0xFFDCEBFF, BS = 0xFF2563EB, BT = 0xFF1E3A8A;
-        // ===== السياج: شريط علوي =====
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.VERTICAL);
-        top.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 22, 2));
-        top.setPadding(dp(8), dp(6), dp(8), dp(6));
-        LinearLayout tr = row();
-        tr.addView(w(compact(sbtn("🔗 اتصال", BL, BS, BT, new View.OnClickListener() {
-            @Override public void onClick(View v) { connect(); }
-        }))));
-        tr.addView(w(compact(sbtn("📱 عرض الشاشة", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) { startMirror(); }
-        }))));
-        tr.addView(w(compact(sbtn("⏹ وقف العرض", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, new View.OnClickListener() {
-            @Override public void onClick(View v) { stopMirror(); }
-        }))));
-        top.addView(tr);
-        status = new TextView(this);
-        status.setTextSize(14);
-        status.setTextColor(INK);
-        status.setGravity(Gravity.CENTER);
-        status.setText("دخل الكود واضغط اتصال");
-        top.addView(status);
-
-        // ===== السياج: السفلي =====
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 22, 2));
-        bar.setPadding(dp(8), dp(6), dp(8), dp(6));
-        LinearLayout r1 = row();
-        r1.addView(w(compact(sbtn("⏪ 10ث", BL, BS, BT, ctl("back")))));
-        r1.addView(w(compact(sbtn("⏯", BL, BS, BT, ctl("pause")))));
-        r1.addView(w(compact(sbtn("10ث ⏩", BL, BS, BT, ctl("fwd")))));
-        bar.addView(r1);
-        LinearLayout r2 = row();
-        r2.addView(w(compact(sbtn("◀ صفحة", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("prev")))));
-        r2.addView(w(compact(sbtn("⏹ وقف", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, ctl("stop")))));
-        r2.addView(w(compact(sbtn("صفحة ▶", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("next")))));
-        bar.addView(r2);
-        LinearLayout vr = row();
-        vr.addView(w(volBtn("🔉 −", "voldown", true)));
-        vr.addView(w(volBtn("🔇", "mute", false)));
-        vr.addView(w(volBtn("🔊 +", "volup", true)));
-        vr.addView(w(volBtn("MAX", "volmax", false)));
-        bar.addView(vr);
-
-        // ===== السياج: الجانب اليسار (تكبير) واليمين (تحريك) =====
-        qBtn = rail("🔍\nعالية", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                hq = !hq;
-                qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
-                sendCmd(hq ? "qh" : "ql");
+                glassOn = !glassOn;
+                sp.edit().putInt("s_glass", glassOn ? 1 : 0).apply();
+                gBtn.setText(glassText());
+                sendCmd("glass:" + (glassOn ? 1 : 0));
             }
         });
-        qBtn.setTextSize(13);
-        LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
-        left.addView(rail("➕", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zin")));
-        left.addView(rail("1x", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zreset")));
-        left.addView(rail("➖", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zout")));
-        left.addView(rail("🖼", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("imode")));
-        left.addView(qBtn);
-        LinearLayout right = new LinearLayout(this);
-        right.setOrientation(LinearLayout.VERTICAL);
-        right.addView(rail("▲", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pu")));
-        right.addView(rail("◀", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pl")));
-        right.addView(rail("▶", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pr")));
-        right.addView(rail("▼", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pd")));
-        right.addView(rail("🖥", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("lmode")));
+        disp.addView(vw(gBtn, 1.1f));
+        disp.addView(vw(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 1f));
+        right.addView(vw(disp, 6.4f));
 
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(58), -1);
-        rp.setMargins(dp(4), 0, dp(2), 0);
-        mid.addView(left, rp);
-        mid.addView(sv, new LinearLayout.LayoutParams(0, -1, 1f));
-        LinearLayout.LayoutParams rp2 = new LinearLayout.LayoutParams(dp(58), -1);
-        rp2.setMargins(dp(2), 0, dp(4), 0);
-        mid.addView(right, rp2);
+        // ===== الشريط السفلي: أهم الأزرار اليومية =====
+        LinearLayout bar = glassCard(null);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.addView(hw(gbtn("📱 ابدأ عرض الشاشة", C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) { startMirror(); }
+        }), 1.5f));
+        bar.addView(hw(gbtn("⏹ وقف العرض", C_RED, new View.OnClickListener() {
+            @Override public void onClick(View v) { stopMirror(); }
+        }), 1f));
 
-        LinearLayout rootL = new LinearLayout(this);
-        rootL.setOrientation(LinearLayout.VERTICAL);
-        rootL.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xFFFFF8EE, 0xFFF3E9D6}));
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
-        tlp.setMargins(dp(8), dp(8), dp(8), dp(2));
-        rootL.addView(top, tlp);
-        rootL.addView(mid, new LinearLayout.LayoutParams(-1, 0, 1f));
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
-        blp.setMargins(dp(8), dp(2), dp(8), dp(8));
-        rootL.addView(bar, blp);
-        setContentView(rootL);
-    }
+        LinearLayout mid = box(false);
+        LinearLayout.LayoutParams lpL = new LinearLayout.LayoutParams(0, -1, 31f);
+        LinearLayout.LayoutParams lpC = new LinearLayout.LayoutParams(0, -1, 38f);
+        LinearLayout.LayoutParams lpR = new LinearLayout.LayoutParams(0, -1, 31f);
+        lpL.setMargins(0, 0, dp(3), 0);
+        lpC.setMargins(dp(3), 0, dp(3), 0);
+        lpR.setMargins(dp(3), 0, 0, 0);
+        mid.addView(left, lpL);
+        mid.addView(center, lpC);
+        mid.addView(right, lpR);
 
-    // زر عمودي للجوانب: كيتقسم الطول بالتساوي
-    private Button rail(String t, int fill, int stroke, int tc, View.OnClickListener l) {
-        Button b = sbtn(t, fill, stroke, tc, l);
-        b.setTextSize(18);
-        b.setPadding(0, 0, 0, 0);
-        b.setMinimumHeight(0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1f);
-        lp.setMargins(0, dp(3), 0, dp(3));
-        b.setLayoutParams(lp);
-        return b;
+        LinearLayout content = box(true);
+        content.setPadding(dp(6), dp(6), dp(6), dp(6));
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, -2);
+        tl.setMargins(0, 0, 0, dp(4));
+        content.addView(top, tl);
+        content.addView(mid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, dp(54));
+        bl.setMargins(0, dp(4), 0, 0);
+        content.addView(bar, bl);
+
+        // ===== الخلفية: تدرج + فقاعات ملونة كتعطي عمق للزجاج =====
+        FrameLayout root = new FrameLayout(this);
+        root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF1E1B4B, 0xFF312E81, 0xFF0F766E}));
+        root.addView(blob(0x77EC4899, 230, Gravity.TOP | Gravity.RIGHT, -60, 40, 40, 6000));
+        root.addView(blob(0x66F59E0B, 190, Gravity.CENTER_VERTICAL | Gravity.LEFT, -70, 0, 50, 7500));
+        root.addView(blob(0x7706B6D4, 220, Gravity.BOTTOM | Gravity.RIGHT, -50, 60, 35, 6800));
+        root.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        setContentView(root);
     }
 
     private void setStatus(final String s) {
         ui.post(new Runnable() { @Override public void run() { status.setText(s); } });
     }
 
-    // ---------------- مستويات الضبط ----------------
+    // ---------------- مستويات الضبط (كتتحفظ تلقائيا) ----------------
     private final Map<String, TextView> lvlViews = new HashMap<String, TextView>();
     private final Map<String, int[]> lvlRange = new HashMap<String, int[]>();
+    private final Map<String, Integer> lvlDef = new HashMap<String, Integer>();
 
     private void setLevel(String key, int v) {
         int[] rg = lvlRange.get(key);
@@ -573,39 +575,43 @@ public class SenderActivity extends Activity {
         setLevel("sat", sat); setLevel("txt", txt); setLevel("sha", sha);
     }
 
-    private View levelRow(String label, final String key, final int min, final int max, final int def) {
+    // كيبعت القيم المحفوظة فالهاتف لـ TV Box ملي كيتصل، باش كلشي يبقى مطابق
+    private void syncLevels() {
+        ui.post(new Runnable() {
+            @Override public void run() {
+                for (String k : lvlRange.keySet()) {
+                    sendCmd(k + ":" + sp.getInt("s_" + k, lvlDef.get(k)));
+                }
+                sendCmd("glass:" + (glassOn ? 1 : 0));
+            }
+        });
+    }
+
+    private View levelCell(String lab, final String key, int min, int max, final int def) {
         lvlRange.put(key, new int[]{min, max});
-        final int[] cur = {sp.getInt("s_" + key, def)};
-        LinearLayout r = row();
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        TextView lb = new TextView(this);
-        lb.setText(label);
-        lb.setTextSize(14);
-        lb.setTextColor(0xFF2D2D3A);
-        lb.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1.5f));
-        r.addView(lb);
-        Button m = compact(sbtn("➖", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
-        TextView val = new TextView(this);
-        val.setText(cur[0] + "/" + max);
-        val.setTextSize(16);
-        val.setTypeface(null, Typeface.BOLD);
-        val.setGravity(Gravity.CENTER);
-        val.setTextColor(0xFF1E3A8A);
-        lvlViews.put(key, val);
-        Button p = compact(sbtn("➕", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, null));
-        m.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.7f));
-        val.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.8f));
-        p.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 0.7f));
-        m.setOnClickListener(new View.OnClickListener() {
+        lvlDef.put(key, def);
+        LinearLayout c = box(true);
+        c.setBackground(glassShape(0xFFFFFF, 0x2A, 0x10, 0x55FFFFFF, 14));
+        c.setPadding(dp(2), dp(1), dp(2), dp(2));
+        TextView lb = label(lab, 10, true);
+        c.addView(lb, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout r = box(false);
+        Button m = gbtn("−", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) - 1); }
         });
-        p.setOnClickListener(new View.OnClickListener() {
+        TextView val = label(sp.getInt("s_" + key, def) + "/" + max, 13, true);
+        val.setGravity(Gravity.CENTER);
+        lvlViews.put(key, val);
+        Button p = gbtn("+", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) + 1); }
         });
-        r.addView(m);
-        r.addView(val);
-        r.addView(p);
-        return r;
+        autosize(m, 14, 24);
+        autosize(p, 14, 24);
+        r.addView(hw(m, 1f));
+        r.addView(hw(val, 1.2f));
+        r.addView(hw(p, 1f));
+        c.addView(r, new LinearLayout.LayoutParams(-1, 0, 1f));
+        return c;
     }
 
     // ---------------- network ----------------
@@ -691,6 +697,7 @@ public class SenderActivity extends Activity {
                     ip = found;
                     sp.edit().putString("ip", found).apply();
                     setStatus("✅ متصل بـ TV Box (" + found + ")");
+                    syncLevels();
                 } else {
                     setStatus("❌ ما لقيتش TV Box. تأكد: نفس الواي فاي، الكود صحيح، التطبيق مفتوح في TV Box.");
                 }
@@ -724,17 +731,21 @@ public class SenderActivity extends Activity {
     }
 
     private String levelText() {
-        return mlevel == 0 ? "📺 دقة الشاشة: منخفضة (854)"
-                : mlevel == 2 ? "📺 دقة الشاشة: Full HD (1920)"
-                : mlevel == 3 ? "📺 دقة الشاشة: فائقة (2560 · أعلى جودة)" : "📺 دقة الشاشة: عادية (1280)";
+        String q = mlevel == 0 ? "منخفضة 854" : mlevel == 2 ? "Full HD 1920"
+                : mlevel == 3 ? "فائقة 2560" : "عادية 1280";
+        return "📺 دقة العرض\n" + q;
+    }
+
+    private String glassText() {
+        return "🪟 زجاج الداتا شو\n" + (glassOn ? "مفعل ✅" : "ملغى");
     }
 
     private String compatText() {
-        return compat ? "🛠 وضع التوافق (هواتف قديمة/Redmi/Samsung): مفعل" : "🛠 وضع التوافق (هواتف قديمة/Redmi/Samsung): ملغى";
+        return "🛠 توافق (هواتف قديمة)\n" + (compat ? "مفعل ✅" : "ملغى");
     }
 
     private String rotText() {
-        return autoRot ? "🔄 التدوير التلقائي: مفعل (اضغط للإلغاء)" : "🔄 التدوير التلقائي: ملغى (اضغط للتفعيل)";
+        return "🔄 تدوير الشاشة\n" + (autoRot ? "تلقائي ✅" : "ملغى");
     }
 
     // كيفعل auto-rotate فالهاتف بوحدو، وكيرجعو لحالتو الأصلية إلا تلغات الخاصية
@@ -790,6 +801,12 @@ public class SenderActivity extends Activity {
     }
 
     private void startMirror() {
+        // عرض الهاتف (يوتيوب...) كيبدا على الأقل بـ Full HD باش الألوان والكتابة تبقى نقية
+        if (mlevel < 2) {
+            mlevel = 2;
+            sp.edit().putInt("mlevel2", mlevel).apply();
+            if (mBtn != null) mBtn.setText(levelText());
+        }
         try {
             MediaProjectionManager m = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
             startActivityForResult(m.createScreenCaptureIntent(), 9);

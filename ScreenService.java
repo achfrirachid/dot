@@ -197,7 +197,7 @@ public class ScreenService extends Service {
             // الهاتف مقفل: ما نبعثوش إطارات سوداء، كتبقى آخر صورة معروضة فالداتا شو
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isInteractive()) return;
-            long wait = (level >= 3 ? 130 : level == 2 ? 100 : 70) - (SystemClock.uptimeMillis() - last);
+            long wait = (level >= 3 ? 110 : level == 2 ? 80 : 60) - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();
             int w = r.getWidth();

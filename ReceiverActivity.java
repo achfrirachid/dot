@@ -17,6 +17,7 @@ import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.drawable.GradientDrawable;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
@@ -97,6 +98,10 @@ public class ReceiverActivity extends Activity {
     private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 6, lvlSha = 7;
     // إضاءة الظلال لعرض الهاتف (الداتا شو كتغمق الألوان): 0 = بلا / 10 = أقوى
     private volatile int lvlGam = 5;
+    // الزجاج: خلفية ملونة + إطار شفاف حول المحتوى (المحتوى نفسو يبقى صافي باش الكتابة تبان)
+    private volatile int glass = 1;
+    private FrameLayout glassBg;
+    private View glassFrame;
     private final int[] gamLut = new int[256];
     private int gamLutFor = -1;
     private int[] gamPx;
@@ -133,8 +138,10 @@ public class ReceiverActivity extends Activity {
         lvlTxt = sp.getInt("l_txt", 6);
         lvlSha = sp.getInt("l_sha", 7);
         lvlGam = sp.getInt("l_gam", 5);
+        glass = sp.getInt("l_glass", 1);
         liveMode = sp.getInt("l_live", 0);
         buildUi();
+        applyGlass();
         applyLiveMode();
         applyLevels();
         askOverlay();
@@ -173,6 +180,15 @@ public class ReceiverActivity extends Activity {
     private void buildUi() {
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+
+        glassBg = new FrameLayout(this);
+        glassBg.addView(blobView(0x77EC4899, 0.34f, Gravity.TOP | Gravity.RIGHT, -0.08f, 0.02f));
+        glassBg.addView(blobView(0x66F59E0B, 0.28f, Gravity.CENTER_VERTICAL | Gravity.LEFT, -0.09f, 0f));
+        glassBg.addView(blobView(0x7706B6D4, 0.32f, Gravity.BOTTOM | Gravity.RIGHT, -0.07f, 0.04f));
+        glassFrame = new View(this);
+        glassFrame.setBackground(glassDrawable(0xFFFFFF, 0x55, 0x30, 0xCCFFFFFF, 30));
+        glassBg.addView(glassFrame, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(glassBg, new FrameLayout.LayoutParams(-1, -1));
 
         fillView = new FillVideoView(this);
         video = fillView;
@@ -270,7 +286,7 @@ public class ReceiverActivity extends Activity {
     private TextView hintView() {
         if (hint == null) {
             hint = new TextView(this);
-            hint.setTextColor(Color.LTGRAY);
+            hint.setTextColor(glass == 1 ? Color.WHITE : Color.LTGRAY);
             hint.setTextSize(22);
             hint.setGravity(Gravity.CENTER);
             idle.addView(hint, 2);
@@ -661,6 +677,11 @@ public class ReceiverActivity extends Activity {
         image.setScaleY(eff);
         image.setTranslationX(panX);
         image.setTranslationY(panY);
+        if (glassFrame != null) {
+            float gs = Math.min(1f, fit + 0.02f);
+            glassFrame.setScaleX(gs);
+            glassFrame.setScaleY(gs);
+        }
         if (video != null) { video.setScaleX(fit); video.setScaleY(fit); }
         if (liveView != null) { liveView.setScaleX(fit); liveView.setScaleY(fit); }
         if (multi != null) {
@@ -676,6 +697,7 @@ public class ReceiverActivity extends Activity {
 
     private void applyLevels() {
         fit = 0.60f + 0.40f * (lvlFit - 1) / 9f;
+        if (glass == 1) fit = Math.min(fit, 0.95f);   // يبقى هامش صغير باش الإطار الزجاجي يبان
         boolean neutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5;
         if (neutral) {
             image.setLayerType(View.LAYER_TYPE_NONE, null);
@@ -700,6 +722,53 @@ public class ReceiverActivity extends Activity {
         applyZoom();
     }
 
+    private int dpx(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    private GradientDrawable glassDrawable(int tint, int a1, int a2, int stroke, int radiusDp) {
+        int rgb = tint & 0xFFFFFF;
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{(a1 << 24) | rgb, (a2 << 24) | rgb});
+        g.setCornerRadius(dpx(radiusDp));
+        g.setStroke(dpx(2), stroke);
+        return g;
+    }
+
+    private View blobView(int color, float frac, int gravity, float mx, float my) {
+        int sw = getResources().getDisplayMetrics().widthPixels;
+        int size = Math.round(sw * frac);
+        View v = new View(this);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(color);
+        v.setBackground(g);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(size, size, gravity);
+        lp.setMargins(Math.round(sw * mx), Math.round(sw * my), Math.round(sw * mx), Math.round(sw * my));
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    // تفعيل / إلغاء المظهر الزجاجي (خلفية متدرجة + إطار شفاف + بطاقة زجاجية للشاشة الرئيسية)
+    private void applyGlass() {
+        boolean on = glass == 1;
+        if (glassBg != null) glassBg.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on) {
+            root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{0xFF1E1B4B, 0xFF312E81, 0xFF0F766E}));
+        } else {
+            root.setBackgroundColor(Color.BLACK);
+        }
+        if (multi != null) multi.setBackgroundColor(on ? Color.TRANSPARENT : Color.parseColor("#444444"));
+        if (idle != null) {
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1);
+            int m = on ? dpx(36) : 0;
+            lp.setMargins(m, m, m, m);
+            idle.setLayoutParams(lp);
+            idle.setBackground(on ? glassDrawable(0xFFFFFF, 0x40, 0x18, 0x88FFFFFF, 28) : null);
+        }
+        if (hint != null) hint.setTextColor(on ? Color.WHITE : Color.LTGRAY);
+        applyLevels();
+    }
+
     private void levelCmd(String cmd) {
         String[] kv = cmd.split(":");
         if (kv.length < 2) return;
@@ -717,6 +786,13 @@ public class ReceiverActivity extends Activity {
             ed.putInt("l_txt", lvlTxt);
             ed.apply();
             if (old != lvlTxt) reload();
+            return;
+        }
+        else if ("glass".equals(k)) {
+            glass = n > 0 ? 1 : 0;
+            ed.putInt("l_glass", glass);
+            ed.apply();
+            runOnUiThread(new Runnable() { @Override public void run() { applyGlass(); } });
             return;
         }
         else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.apply(); return; }
