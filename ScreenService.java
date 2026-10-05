@@ -143,10 +143,10 @@ public class ScreenService extends Service {
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            jq = level == 0 ? 75 : level == 1 ? 90 : level == 2 ? 95 : 98;
+            jq = level == 0 ? 70 : level == 1 ? 85 : level == 2 ? 90 : 94;
             lastSum = 0;
 
-            ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, compat ? 3 : 2);
+            ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, 2);
             nr.setOnImageAvailableListener(frameListener, handler);
             if (vd == null) {
                 vd = projection.createVirtualDisplay("tvlink", nw, nh, dpi,
@@ -197,7 +197,7 @@ public class ScreenService extends Service {
             // الهاتف مقفل: ما نبعثوش إطارات سوداء، كتبقى آخر صورة معروضة فالداتا شو
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isInteractive()) return;
-            long wait = (level >= 3 ? 110 : level == 2 ? 80 : 60) - (SystemClock.uptimeMillis() - last);
+            long wait = (level >= 3 ? 70 : level == 2 ? 50 : 35) - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();
             int w = r.getWidth();

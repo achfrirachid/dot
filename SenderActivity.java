@@ -719,6 +719,7 @@ public class SenderActivity extends Activity {
 
     private String code() {
         String c = codeF.getText().toString().trim();
+        cmdCode = c;
         sp.edit().putString("paircode", c).apply();
         return c;
     }
@@ -749,22 +750,45 @@ public class SenderActivity extends Activity {
         }).start();
     }
 
+    // خيط واحد دايم للأوامر: بلا خلق خيط جديد وبلا bindWifi/كتابة prefs مع كل ضغطة
+    private final java.util.concurrent.ExecutorService cmdPool = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private volatile String cmdCode;
+
     private void sendCmd(final String cmd) {
-        final String c = code();
-        new Thread(new Runnable() {
+        if (cmdCode == null) cmdCode = code();
+        final String c = cmdCode;
+        cmdPool.execute(new Runnable() {
             @Override public void run() {
-                try {
+                String host = ip;
+                if (host == null) {
                     bindWifi();
-                    String host = ip != null ? ip : discover(c, 4000);
+                    host = discover(c, 2500);
                     if (host == null) { setStatus("❌ اضغط اتصل أولا"); return; }
                     ip = host;
-                    get(host, c, "/ctl?cmd=" + cmd);
+                }
+                try {
+                    HttpURLConnection h = (HttpURLConnection) new URL("http://" + host + ":" + Net.HTTP_PORT + "/ctl?cmd=" + cmd).openConnection();
+                    h.setConnectTimeout(1500);
+                    h.setReadTimeout(2500);
+                    h.setRequestProperty("X-Code", c);
+                    h.getResponseCode();
+                    h.disconnect();
                 } catch (Exception e) {
-                    ip = null;
-                    setStatus("❌ فقدت الاتصال، اضغط اتصل");
+                    // مرة وحدة نعاود بلا ما نمسحو IP (الواي فاي ساعات كيتأخر شوية)
+                    try {
+                        HttpURLConnection h = (HttpURLConnection) new URL("http://" + host + ":" + Net.HTTP_PORT + "/ctl?cmd=" + cmd).openConnection();
+                        h.setConnectTimeout(2500);
+                        h.setReadTimeout(3000);
+                        h.setRequestProperty("X-Code", c);
+                        h.getResponseCode();
+                        h.disconnect();
+                    } catch (Exception e2) {
+                        ip = null;
+                        setStatus("❌ فقدت الاتصال، اضغط اتصل");
+                    }
                 }
             }
-        }).start();
+        });
     }
 
     // ---------------- apps + mirroring ----------------

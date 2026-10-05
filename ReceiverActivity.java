@@ -496,8 +496,18 @@ public class ReceiverActivity extends Activity {
                 page = 0;
                 renderPage();
             } else if ("image".equals(type)) {
-                image.setImageBitmap(decode(f));
+                final File imgF = f;
                 image.setVisibility(View.VISIBLE);
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        final Bitmap bm = decode(imgF);
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                if (curFile == imgF) image.setImageBitmap(bm);
+                            }
+                        });
+                    }
+                }).start();
             } else {
                 video.setVisibility(View.VISIBLE);
                 video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
@@ -611,11 +621,13 @@ public class ReceiverActivity extends Activity {
     }
 
     // حدة الصورة (للصور الملتقطة بالهاتف: امتحانات، فروض)
+    private RenderScript rsCache;
     private Bitmap sharpen(Bitmap bm) {
         if (bm == null || lvlSha <= 0) return bm;
         try {
             float a = lvlSha * 0.15f;
-            RenderScript rs = RenderScript.create(this);
+            if (rsCache == null) rsCache = RenderScript.create(getApplicationContext());
+            RenderScript rs = rsCache;
             Allocation in = Allocation.createFromBitmap(rs, bm);
             Allocation out = Allocation.createTyped(rs, in.getType());
             ScriptIntrinsicConvolve3x3 sc = ScriptIntrinsicConvolve3x3.create(rs, Element.U8_4(rs));
@@ -624,7 +636,7 @@ public class ReceiverActivity extends Activity {
             sc.forEach(out);
             Bitmap res = Bitmap.createBitmap(bm.getWidth(), bm.getHeight(), Bitmap.Config.ARGB_8888);
             out.copyTo(res);
-            rs.destroy();
+            in.destroy(); out.destroy(); sc.destroy();
             return res;
         } catch (Throwable t) {
             return bm;
@@ -633,7 +645,7 @@ public class ReceiverActivity extends Activity {
 
     private Bitmap fitBitmap(Bitmap bm) {
         if (bm == null || root.getWidth() == 0 || root.getHeight() == 0) return bm;
-        float s = Math.min(root.getWidth() * 2.5f / bm.getWidth(), root.getHeight() * 2.5f / bm.getHeight());
+        float s = Math.min(root.getWidth() * 1.6f / bm.getWidth(), root.getHeight() * 1.6f / bm.getHeight());
         if (s >= 1f) return bm;
         Bitmap o = Bitmap.createScaledBitmap(bm, Math.max(1, (int) (bm.getWidth() * s)),
                 Math.max(1, (int) (bm.getHeight() * s)), true);
@@ -1235,6 +1247,7 @@ public class ReceiverActivity extends Activity {
                 if (buf.length < n) buf = new byte[n];
                 di.readFully(buf, 0, n);
                 if (pending.get()) continue;
+                if (in.available() > 4) continue;   // فرام جديد وصل: نتخطى القديم باش ما يتراكمش التأخير
                 BitmapFactory.Options dop = new BitmapFactory.Options();
                 dop.inPreferredConfig = Bitmap.Config.ARGB_8888;
                 dop.inDither = false;
