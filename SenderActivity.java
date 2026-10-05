@@ -202,6 +202,17 @@ public class SenderActivity extends Activity {
         };
     }
 
+    private View.OnClickListener pickL(final String mime, final int req) {
+        return new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType(mime);
+                startActivityForResult(i, req);
+            }
+        };
+    }
+
     // أزرار الصوت ديال الهاتف كتتحكم فصوت TV Box ملي تكون متصل وهاد الشاشة مفتوحة
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -508,13 +519,11 @@ public class SenderActivity extends Activity {
 
         // ===== العمود اليمين: الإرسال + عرض الهاتف =====
         LinearLayout right = box(true);
-        LinearLayout send = glassCard("📤 الإرسال بالمشاركة", 0xE6FCE4EC, 0xFFF4A6C0);
-        TextView shareHint = label("حمل الفيديو فـ NewPipe\nبالجودة اللي بغيتي،\nومن بعد ضغط «مشاركة»\nوختار TV Link.\nكيتشغل فالحين من الهاتف\nبلا نسخ ولا انتظار.", 12, false);
-        shareHint.setSingleLine(false);
-        shareHint.setGravity(Gravity.CENTER);
-        shareHint.setLineSpacing(0f, 1.1f);
-        send.addView(vw(shareHint, 1f));
-        right.addView(vw(send, 3.2f));
+        LinearLayout send = glassCard("📤 أرسل للداتا شو", 0xE6FCE4EC, 0xFFF4A6C0);
+        send.addView(vw(gbtn("🎬  فيديو", C_ORANGE, pickL("video/*", 1)), 1f));
+        send.addView(vw(gbtn("🖼  صورة", C_PINK, pickL("image/*", 2)), 1f));
+        send.addView(vw(gbtn("📄  PDF", C_PURPLE, pickL("application/pdf", 3)), 1f));
+        right.addView(vw(send, 4.2f));
 
         LinearLayout disp = glassCard("📱 عرض الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
@@ -557,7 +566,7 @@ public class SenderActivity extends Activity {
         });
         disp.addView(vw(gBtn, 1.1f));
         disp.addView(vw(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 1f));
-        right.addView(vw(disp, 7.6f));
+        right.addView(vw(disp, 6.4f));
 
         // ===== الشريط السفلي: أهم الأزرار اليومية =====
         LinearLayout bar = glassCard(null, 0xF2FFFDF8, 0xFFE7D7BE);
@@ -1104,7 +1113,8 @@ public class SenderActivity extends Activity {
             return;
         }
         if (res == RESULT_OK && data != null && data.getData() != null) {
-            String t = req == 1 ? "video" : req == 2 ? "image" : req == 3 ? "pdf" : null;
+            if (req == 1) { playFromPhone(data.getData(), displayName(data.getData())); return; }   // الفيديو كيتبث فالحين بلا نسخ
+            String t = req == 2 ? "image" : req == 3 ? "pdf" : null;
             sendUri(data.getData(), t);
         }
     }

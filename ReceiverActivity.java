@@ -107,7 +107,7 @@ public class ReceiverActivity extends Activity {
     private TextView vpDimVal, vpFitVal;
     private boolean panelOff = false;
     // وضع الامتحان: صورة/ورقة تتعرض بعرض الداتا شو كامل (بلا إطار زجاجي) مع وضوح الكتابة
-    private boolean examFull = false, examNext = false;
+    private boolean examFull = false, examNext = false, examFresh = false;
     private final Runnable panelHider = new Runnable() {
         @Override public void run() { if (vpanel != null) vpanel.setVisibility(View.GONE); }
     };
@@ -246,11 +246,6 @@ public class ReceiverActivity extends Activity {
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
 
-        dimView = new View(this);
-        dimView.setBackgroundColor(Color.BLACK);
-        root.addView(dimView, new FrameLayout.LayoutParams(-1, -1));
-        dimView.setVisibility(View.GONE);
-
         image = new FillImageView(this);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         root.addView(image, new FrameLayout.LayoutParams(-1, -1));
@@ -266,6 +261,12 @@ public class ReceiverActivity extends Activity {
         multi.setBackgroundColor(Color.parseColor("#444444"));
         root.addView(multi, new FrameLayout.LayoutParams(-1, -1));
         multi.setVisibility(View.GONE);
+
+        // طبقة تعتيم البياض: فوق الفيديو والصور وPDF وعرض الهاتف (الأسود كيبقى أسود، البياض كيخف)
+        dimView = new View(this);
+        dimView.setBackgroundColor(Color.BLACK);
+        root.addView(dimView, new FrameLayout.LayoutParams(-1, -1));
+        dimView.setVisibility(View.GONE);
 
         try {
             web = new WebView(this);
@@ -446,8 +447,8 @@ public class ReceiverActivity extends Activity {
 
     private void applyDim() {
         if (dimView == null) return;
-        boolean on = video != null && video.getVisibility() == View.VISIBLE && lvlVdim > 0;
-        dimView.setAlpha(0.06f * lvlVdim);
+        boolean on = idle != null && idle.getVisibility() != View.VISIBLE && lvlVdim > 0;
+        dimView.setAlpha(0.08f * lvlVdim);
         dimView.setVisibility(on ? View.VISIBLE : View.GONE);
     }
 
@@ -675,6 +676,7 @@ public class ReceiverActivity extends Activity {
         curFile = f;
         curType = type;
         examFull = examNext;
+        examFresh = examFull;
         examNext = false;
         if (examFull && glassBg != null) glassBg.setVisibility(View.GONE);
         if (examFull) applyLevels();
@@ -682,7 +684,7 @@ public class ReceiverActivity extends Activity {
         image.setMode(FillImageView.FIT);
         File[] old = f.getParentFile().listFiles();
         if (old != null) for (File o : old) if (!o.equals(f)) o.delete();
-        idle.setVisibility(View.GONE);
+        idle.setVisibility(View.GONE); applyDim();
         showing = true;
         try {
             if ("pdf".equals(type)) {
@@ -698,7 +700,10 @@ public class ReceiverActivity extends Activity {
                         final Bitmap bm = decode(imgF);
                         runOnUiThread(new Runnable() {
                             @Override public void run() {
-                                if (curFile == imgF) image.setImageBitmap(bm);
+                                if (curFile == imgF) {
+                                    image.setImageBitmap(bm);
+                                    if (bm != null) examFill(bm.getWidth(), bm.getHeight());
+                                }
                             }
                         });
                     }
@@ -715,7 +720,8 @@ public class ReceiverActivity extends Activity {
                         }
                         try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                         video.start(); applyBoost();
-                        Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
+                        Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
+                                + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1280 ? "  ⚠ ثقيل: حمل 720p H.264" : ""), Toast.LENGTH_LONG).show();
                     }
                 });
                 video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
@@ -743,7 +749,7 @@ public class ReceiverActivity extends Activity {
         curType = "video";
         image.live = false;
         image.setMode(FillImageView.FIT);
-        idle.setVisibility(View.GONE);
+        idle.setVisibility(View.GONE); applyDim();
         showing = true;
         try {
             video.setVisibility(View.VISIBLE);
@@ -757,7 +763,8 @@ public class ReceiverActivity extends Activity {
                     }
                     try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                     video.start(); applyBoost();
-                    Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
+                            + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1280 ? "  ⚠ ثقيل: حمل 720p H.264" : ""), Toast.LENGTH_LONG).show();
                 }
             });
             video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
@@ -774,9 +781,24 @@ public class ReceiverActivity extends Activity {
         }
     }
 
+    // وضع الامتحان: الورقة كتملا عرض الداتا شو كامل (وكتبدا من الأعلى، والأسهم ▲▼ كتنزل فيها)
+    private void examFill(int bw, int bh) {
+        if (!examFull || !examFresh || bw <= 0 || bh <= 0) return;
+        int rw = root.getWidth(), rh = root.getHeight();
+        if (rw <= 0 || rh <= 0) return;
+        examFresh = false;
+        float s = Math.max(1f, Math.min(6f, (float) rw * bh / ((float) rh * bw)));
+        zoom = s;
+        panX = 0f;
+        panY = (zoom * fit - 1f) * rh / 2f;
+        applyZoom();
+        if (pdf == null) image.refreshQuality();
+    }
+
     private void renderPage() {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
+        examFill(pg.getWidth(), pg.getHeight());
         int rh = root.getHeight() > 0 ? root.getHeight() : 1080;
         int target = Math.min((int) (rh * Math.max(1f, zoom)), quality == 2 ? 3000 : 1400);
         int ss = Math.max(target, Math.min(target * 2, quality == 2 ? 3200 : 1400));
@@ -795,6 +817,7 @@ public class ReceiverActivity extends Activity {
         bm = thicken(bm);
         image.setImageBitmap(bm);
         image.setVisibility(View.VISIBLE);
+        applyZoom();
     }
 
     private Bitmap decode(File f) {
@@ -950,7 +973,6 @@ public class ReceiverActivity extends Activity {
         }
         float vf = 0.60f + 0.40f * (lvlFit - 1) / 9f;   // الفيديو ما كيتأثرش بالإطار الزجاجي
         if (video != null) { video.setScaleX(vf); video.setScaleY(vf); }
-        if (dimView != null) { dimView.setScaleX(vf); dimView.setScaleY(vf); }
         if (liveView != null) { liveView.setScaleX(fit); liveView.setScaleY(fit); }
         if (multi != null) {
             multi.setScaleX(eff);
@@ -1259,10 +1281,10 @@ public class ReceiverActivity extends Activity {
                 volToast();
                 break;
             case "next":
-                if (pdf != null && page < pdf.getPageCount() - 1) { page++; resetZoom(); renderPage(); }
+                if (pdf != null && page < pdf.getPageCount() - 1) { page++; resetZoom(); examFresh = examFull; renderPage(); }
                 break;
             case "prev":
-                if (pdf != null && page > 0) { page--; resetZoom(); renderPage(); }
+                if (pdf != null && page > 0) { page--; resetZoom(); examFresh = examFull; renderPage(); }
                 break;
         }
     }
@@ -1311,7 +1333,7 @@ public class ReceiverActivity extends Activity {
             v.setMode(FillImageView.FIT);
             if (bm != null) v.setImageBitmap(thicken(bm));
         }
-        idle.setVisibility(View.GONE);
+        idle.setVisibility(View.GONE); applyDim();
         image.setVisibility(View.GONE);
         multi.setVisibility(View.VISIBLE);
         curType = "multi";
@@ -1497,7 +1519,7 @@ public class ReceiverActivity extends Activity {
                 front();
                 stopMedia();
                 curType = "stream";
-                idle.setVisibility(View.GONE);
+                idle.setVisibility(View.GONE); applyDim();
                 liveView.setVisibility(View.VISIBLE);
                 showing = true;
             }
@@ -1562,7 +1584,7 @@ public class ReceiverActivity extends Activity {
             return;
         } catch (Exception ignored) {}
         if (web != null) {
-            idle.setVisibility(View.GONE);
+            idle.setVisibility(View.GONE); applyDim();
             showing = true;
             web.setVisibility(View.VISIBLE);
             web.loadUrl(url.replace("www.", "m."));
@@ -1593,7 +1615,7 @@ public class ReceiverActivity extends Activity {
             return;
         } catch (ActivityNotFoundException ignored) {}
         if (web != null) {
-            idle.setVisibility(View.GONE);
+            idle.setVisibility(View.GONE); applyDim();
             showing = true;
             web.setVisibility(View.VISIBLE);
             web.loadUrl(id != null ? "https://m.youtube.com/watch?v=" + id : link);
