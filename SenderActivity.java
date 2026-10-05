@@ -1340,6 +1340,9 @@ public class SenderActivity extends Activity {
             @Override public void onClick(android.content.DialogInterface d, int w) { pickTree(); }
         });
         b.setNegativeButton("إغلاق", null);
+        b.setPositiveButton("⚙ تجهيز للداتاشو", new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) { startPrep(items); }
+        });
         if (items.isEmpty()) {
             b.setMessage("المجلد خاوي. حمل الفيديوهات بـ NewPipe فهاد المجلد (صيغة MP4)، ومن بعد رجع هنا.");
             b.show();
@@ -1350,7 +1353,8 @@ public class SenderActivity extends Activity {
             long mb = 0;
             try { mb = Long.parseLong(it[3]) >> 20; } catch (Exception ignored) {}
             String icon = it[0].equals("video") ? "🎬" : it[0].equals("pdf") ? "📄" : "🖼";
-            labels.add(icon + "  " + it[1] + (mb > 0 ? "   (" + mb + " MB)" : ""));
+            String ready = (it[0].equals("video") && preparedFile(it) != null) ? " ✅" : "";
+            labels.add(icon + "  " + it[1] + ready + (mb > 0 ? "   (" + mb + " MB)" : ""));
         }
         android.widget.ListView lv = new android.widget.ListView(this);
         lv.setAdapter(new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels));
@@ -1361,11 +1365,53 @@ public class SenderActivity extends Activity {
             @Override public void onItemClick(android.widget.AdapterView<?> a, View v, int pos, long id) {
                 String[] it = items.get(pos);
                 dlg.dismiss();
-                if (it[0].equals("video")) playFromPhone(Uri.parse(it[2]), it[1]);
+                if (it[0].equals("video")) {
+                    java.io.File pf = preparedFile(it);
+                    if (pf != null) playFromPhone(Uri.fromFile(pf), it[1]);
+                    else playFromPhone(Uri.parse(it[2]), it[1]);
+                }
                 else sendUri(Uri.parse(it[2]), it[0]);
             }
         });
         dlg.show();
+    }
+
+    // النسخة الجاهزة (H.264 576p) إلا كانت كاينة
+    private java.io.File preparedFile(String[] it) {
+        long sz = 0;
+        try { sz = Long.parseLong(it[3]); } catch (Exception ignored) {}
+        java.io.File f = Prep.outFor(this, it[1], sz);
+        return (f.exists() && f.length() > 0) ? f : null;
+    }
+
+    private Prep prep;
+
+    // تجهيز كل الفيديوهات اللي بعدا ما تجهزوش: كيتحولو مرة وحدة فالهاتف، وفالقسم كيتشغلو فالحين
+    private void startPrep(List<String[]> items) {
+        List<Prep.Job> jobs = new ArrayList<Prep.Job>();
+        for (String[] it : items) {
+            if (!it[0].equals("video")) continue;
+            long sz = 0;
+            try { sz = Long.parseLong(it[3]); } catch (Exception ignored) {}
+            java.io.File o = Prep.outFor(this, it[1], sz);
+            if (!(o.exists() && o.length() > 0)) jobs.add(new Prep.Job(Uri.parse(it[2]), it[1], o));
+        }
+        if (jobs.isEmpty()) { setStatus("✅ كل الفيديوهات جاهزة"); return; }
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setStatus("⚙ كنبدا التجهيز (" + jobs.size() + " فيديو)... خلي الشاشة مفتوحة");
+        prep = new Prep(this, jobs, new Prep.Listener() {
+            @Override public void onProgress(int index, int total, String name, int percent) {
+                setStatus("⚙ " + index + "/" + total + " · " + percent + "%  " + name);
+            }
+            @Override public void onItemDone(String name, boolean ok) {
+                if (!ok) setStatus("❌ ما تجهزش: " + name);
+            }
+            @Override public void onAllDone(int okCount, int total) {
+                getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                setStatus("✅ تجهزو " + okCount + "/" + total + " — ضغط على 📁 مجلد الداتاشو وختار الفيديو (✅)");
+            }
+        });
+        prep.start();
     }
 
     // الفيديو كيبقى فالهاتف وكيتبث لـ TV Box بالشبكة المحلية: كيبدا فالحين، وكتقدر تقدم وترجع فيه

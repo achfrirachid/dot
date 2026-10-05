@@ -125,6 +125,7 @@ public class MediaServerService extends Service {
 
     private void handle(Socket s) {
         ParcelFileDescriptor pfd = null;
+        FileInputStream fis = null;
         try {
             s.setSoTimeout(15000);
             try { s.setSendBufferSize(1 << 18); } catch (Exception ignored) {}
@@ -147,11 +148,22 @@ public class MediaServerService extends Service {
             String doc = u.getQueryParameter("u");
             if (!"/v".equals(u.getPath()) || !code.equals(u.getQueryParameter("c"))) { err(out, 403, "Forbidden"); return; }
             // ما كنخدمو غير الملفات اللي داخل مجلد الداتاشو
-            if (doc == null || tree == null || !doc.startsWith(tree)) { err(out, 403, "Forbidden"); return; }
-            Uri docUri = Uri.parse(doc);
-            pfd = getContentResolver().openFileDescriptor(docUri, "r");
-            if (pfd == null) { err(out, 404, "Not Found"); return; }
-            long size = pfd.getStatSize();
+            String prepDir = new java.io.File(getFilesDir(), "dsh").getAbsolutePath();
+            boolean isPrep = doc != null && doc.startsWith("file://" + prepDir + "/") && !doc.contains("..");
+            if (doc == null || (!isPrep && (tree == null || !doc.startsWith(tree)))) { err(out, 403, "Forbidden"); return; }
+            long size;
+            if (isPrep) {
+                java.io.File pf = new java.io.File(Uri.parse(doc).getPath());
+                if (!pf.isFile()) { err(out, 404, "Not Found"); return; }
+                fis = new FileInputStream(pf);
+                size = pf.length();
+            } else {
+                Uri docUri = Uri.parse(doc);
+                pfd = getContentResolver().openFileDescriptor(docUri, "r");
+                if (pfd == null) { err(out, 404, "Not Found"); return; }
+                size = pfd.getStatSize();
+                fis = new FileInputStream(pfd.getFileDescriptor());
+            }
             long start = 0, end = size - 1;
             boolean partial = false;
             if (range != null && range.startsWith("bytes=")) {
@@ -184,7 +196,6 @@ public class MediaServerService extends Service {
             out.write(hd.toString().getBytes("UTF-8"));
             if (head) { out.flush(); return; }
             s.setSoTimeout(0);
-            FileInputStream fis = new FileInputStream(pfd.getFileDescriptor());
             FileChannel ch = fis.getChannel();
             ch.position(start);
             ByteBuffer bb = ByteBuffer.allocate(256 * 1024);
@@ -201,6 +212,7 @@ public class MediaServerService extends Service {
         } catch (Exception ignored) {
             // TV Box سد الاتصال (تقديم/تأخير): عادي
         } finally {
+            try { if (fis != null) fis.close(); } catch (Exception ignored) {}
             try { if (pfd != null) pfd.close(); } catch (Exception ignored) {}
             try { s.close(); } catch (Exception ignored) {}
         }

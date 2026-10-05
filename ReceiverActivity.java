@@ -527,6 +527,11 @@ public class ReceiverActivity extends Activity {
                 video.setVisibility(View.VISIBLE);
                 video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                     @Override public void onPrepared(MediaPlayer mp) {
+                        if (mp.getVideoWidth() <= 0 || mp.getVideoHeight() <= 0) {
+                            stopMedia();
+                            hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 720p أو أقل");
+                            return;
+                        }
                         try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                         video.start(); applyBoost();
                         Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
@@ -563,6 +568,11 @@ public class ReceiverActivity extends Activity {
             video.setVisibility(View.VISIBLE);
             video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                 @Override public void onPrepared(MediaPlayer mp) {
+                    if (mp.getVideoWidth() <= 0 || mp.getVideoHeight() <= 0) {
+                        stopMedia();
+                        hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 720p أو أقل");
+                        return;
+                    }
                     try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                     video.start(); applyBoost();
                     Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
