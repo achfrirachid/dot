@@ -474,7 +474,10 @@ public class SenderActivity extends Activity {
                 startActivityForResult(i, 4);
             }
         }), 1.15f));
-        right.addView(vw(send, 4.1f));
+        send.addView(vw(gbtn("📁  مجلد الداتاشو", C_CYAN, new View.OnClickListener() {
+            @Override public void onClick(View v) { openDataShowFolder(); }
+        }), 1.3f));
+        right.addView(vw(send, 5.2f));
 
         LinearLayout disp = glassCard("📱 عرض الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
@@ -659,17 +662,90 @@ public class SenderActivity extends Activity {
     }
 
     // ---------------- network ----------------
+    // كيربط التطبيق كامل بالواي فاي حتى وهو "ما فيه أنترنيت" (بلا ما ينتظر تحقق النظام)
+    private static volatile Network wifiNet;
+    private static ConnectivityManager.NetworkCallback wifiCb;
+
     private void bindWifi() {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             for (Network n : cm.getAllNetworks()) {
                 NetworkCapabilities c = cm.getNetworkCapabilities(n);
                 if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                    wifiNet = n;
                     cm.bindProcessToNetwork(n);
-                    return;
+                    break;
                 }
             }
+            if (wifiCb == null && Build.VERSION.SDK_INT >= 21) {
+                android.net.NetworkRequest rq = new android.net.NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
+                wifiCb = new ConnectivityManager.NetworkCallback() {
+                    @Override public void onAvailable(Network n) {
+                        wifiNet = n;
+                        try { ((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).bindProcessToNetwork(n); } catch (Exception ignored) {}
+                    }
+                };
+                cm.requestNetwork(rq, wifiCb);
+            }
         } catch (Exception ignored) {}
+    }
+
+    // إلا الـ broadcast ما خدمش (راوترات كتمنعو)، كنجربو كل العناوين ديال الشبكة مباشرة
+    private String scanSubnet(final String code, int timeoutMs) {
+        try {
+            DhcpInfo d = ((WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE)).getDhcpInfo();
+            int own = d != null ? d.ipAddress : 0;
+            int mask = d != null ? d.netmask : 0;
+            if (own == 0) {
+                // الهاتف هو الهوتسبوت (ولا DHCP فارغ): كناخدو العنوان من واجهات الشبكة، و /24
+                for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                    if (!ni.isUp() || ni.isLoopback()) continue;
+                    String nn = ni.getName();
+                    if (!(nn.startsWith("wlan") || nn.startsWith("ap") || nn.startsWith("swlan") || nn.startsWith("eth"))) continue;
+                    for (InetAddress a : java.util.Collections.list(ni.getInetAddresses())) {
+                        if (a instanceof java.net.Inet4Address) {
+                            byte[] b = a.getAddress();
+                            own = (b[0] & 0xFF) | ((b[1] & 0xFF) << 8) | ((b[2] & 0xFF) << 16) | ((b[3] & 0xFF) << 24);
+                            mask = 0x00FFFFFF;
+                        }
+                    }
+                }
+            }
+            if (own == 0) return null;
+            final int ownF = own;
+            final int base = own & mask;
+            final java.util.concurrent.atomic.AtomicReference<String> hit = new java.util.concurrent.atomic.AtomicReference<String>();
+            java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(48);
+            for (int i = 1; i < 255; i++) {
+                final int ipInt = (base & 0x00FFFFFF) | (i << 24);
+                if (ipInt == ownF) continue;
+                ex.execute(new Runnable() {
+                    @Override public void run() {
+                        if (hit.get() != null) return;
+                        String h = (ipInt & 0xFF) + "." + ((ipInt >> 8) & 0xFF) + "." + ((ipInt >> 16) & 0xFF) + "." + ((ipInt >> 24) & 0xFF);
+                        java.net.Socket sk = new java.net.Socket();
+                        try {
+                            sk.connect(new java.net.InetSocketAddress(h, Net.HTTP_PORT), 400);
+                            sk.close();
+                            if (get(h, code, "/ping") == 200) hit.compareAndSet(null, h);
+                        } catch (Exception ignored) {
+                            try { sk.close(); } catch (Exception ignored2) {}
+                        }
+                    }
+                });
+            }
+            ex.shutdown();
+            ex.awaitTermination(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            ex.shutdownNow();
+            return hit.get();
+        } catch (Exception e) { return null; }
+    }
+
+    private String findTv(String code, int udpMs) {
+        String f = discover(code, udpMs);
+        if (f == null) f = scanSubnet(code, 6000);
+        return f;
     }
 
     private String discover(String code, int timeoutMs) {
@@ -736,7 +812,7 @@ public class SenderActivity extends Activity {
                 if (!manual.isEmpty()) {
                     try { if (get(manual, c, "/ping") == 200) found = manual; } catch (Exception ignored) {}
                 } else {
-                    found = discover(c, 6000);
+                    found = findTv(c, 2500);
                 }
                 if (found != null) {
                     ip = found;
@@ -762,7 +838,7 @@ public class SenderActivity extends Activity {
                 String host = ip;
                 if (host == null) {
                     bindWifi();
-                    host = discover(c, 2500);
+                    host = findTv(c, 2500);
                     if (host == null) { setStatus("❌ اضغط اتصل أولا"); return; }
                     ip = host;
                 }
@@ -850,7 +926,7 @@ public class SenderActivity extends Activity {
                 try {
                     bindWifi();
                     for (int attempt = 0; attempt < 2; attempt++) {
-                        if (ip == null) ip = discover(c, 5000);
+                        if (ip == null) ip = findTv(c, 2500);
                         if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                         try {
                             int rc = get(ip, c, "/open?app=" + app + "&q=" + URLEncoder.encode(q, "UTF-8"));
@@ -898,7 +974,7 @@ public class SenderActivity extends Activity {
                 if (ip != null) {
                     try { if (get(ip, c, "/ping") != 200) ip = null; } catch (Exception e) { ip = null; }
                 }
-                if (ip == null) ip = discover(c, 5000);
+                if (ip == null) ip = findTv(c, 2500);
                 final String host = ip;
                 if (host == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                 ui.post(new Runnable() {
@@ -944,7 +1020,7 @@ public class SenderActivity extends Activity {
                 try {
                     bindWifi();
                     for (int attempt = 0; attempt < 2; attempt++) {
-                        if (ip == null) ip = discover(c, 5000);
+                        if (ip == null) ip = findTv(c, 2500);
                         if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                         try {
                             int rc = get(ip, c, "/link?u=" + URLEncoder.encode(url, "UTF-8"));
@@ -973,6 +1049,10 @@ public class SenderActivity extends Activity {
         }
         if (req == 4) {
             if (res == RESULT_OK && data != null) sendMulti(data);
+            return;
+        }
+        if (req == 6) {
+            if (res == RESULT_OK && data != null) onTreePicked(data);
             return;
         }
         if (res == RESULT_OK && data != null && data.getData() != null) {
@@ -1017,7 +1097,7 @@ public class SenderActivity extends Activity {
                     if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : type.equals("image") ? ".jpg" : ".mp4";
 
                     for (int attempt = 0; attempt < 2; attempt++) {
-                        if (ip == null) ip = discover(codeNow, 5000);
+                        if (ip == null) ip = findTv(codeNow, 2500);
                         if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                         try {
                             int rc = upload(ip, codeNow, uri, type, name, size);
@@ -1058,7 +1138,7 @@ public class SenderActivity extends Activity {
             @Override public void run() {
                 try {
                     bindWifi();
-                    if (ip == null) ip = discover(codeNow, 5000);
+                    if (ip == null) ip = findTv(codeNow, 2500);
                     if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                     int total = us.size();
                     for (int i = 0; i < total; i++) {
@@ -1123,31 +1203,193 @@ public class SenderActivity extends Activity {
     }
 
     private int upload(String host, String code, Uri uri, String type, String name, long size) throws Exception {
-        URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + "/send?type=" + type
-                + "&name=" + URLEncoder.encode(name, "UTF-8"));
-        HttpURLConnection c = (HttpURLConnection) url.openConnection();
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setFixedLengthStreamingMode(size);
-        c.setRequestProperty("X-Code", code);
-        c.setConnectTimeout(5000);
-        c.setReadTimeout(180000);
-        InputStream in = getContentResolver().openInputStream(uri);
-        OutputStream o = c.getOutputStream();
-        byte[] buf = new byte[65536];
-        long done = 0;
-        int lastPct = -1;
-        int n;
-        while ((n = in.read(buf)) > 0) {
-            o.write(buf, 0, n);
-            done += n;
-            int pct = size > 0 ? (int) (done * 100 / size) : 0;
-            if (pct != lastPct && pct % 5 == 0) { lastPct = pct; setStatus("كنبعث... " + pct + "%"); }
+        return uploadTo("/send", "", host, code, uri, type, name, size);
+    }
+
+    private int uploadTo(String path, String tag, String host, String code, Uri uri, String type, String name, long size) throws Exception {
+        android.net.wifi.WifiManager.WifiLock wl = null;
+        android.os.PowerManager.WakeLock wk = null;
+        try {
+            wl = ((WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE)).createWifiLock(
+                    Build.VERSION.SDK_INT >= 29 ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY : WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tvlink-up");
+            wl.acquire();
+            wk = ((android.os.PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "tvlink:up");
+            wk.acquire(6 * 60 * 60 * 1000L);
+        } catch (Exception ignored) {}
+        try {
+            URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + path + "?type=" + type
+                    + "&name=" + URLEncoder.encode(name, "UTF-8"));
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setFixedLengthStreamingMode(size);
+            c.setRequestProperty("X-Code", code);
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(600000);
+            InputStream in = getContentResolver().openInputStream(uri);
+            OutputStream o = new java.io.BufferedOutputStream(c.getOutputStream(), 1 << 18);
+            byte[] buf = new byte[1 << 18];
+            long done = 0;
+            long t0 = System.currentTimeMillis();
+            long lastUi = 0;
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                o.write(buf, 0, n);
+                done += n;
+                long now = System.currentTimeMillis();
+                if (now - lastUi > 700) {
+                    lastUi = now;
+                    int pct = size > 0 ? (int) (done * 100 / size) : 0;
+                    double mbs = done / 1048576.0 / Math.max(1, (now - t0) / 1000.0);
+                    setStatus(tag + "كنبعث... " + pct + "%  (" + (done >> 20) + "/" + (size >> 20) + " MB، " + String.format(java.util.Locale.US, "%.1f", mbs) + " MB/s)");
+                }
+            }
+            o.flush();
+            o.close();
+            in.close();
+            int rc = c.getResponseCode();
+            c.disconnect();
+            return rc;
+        } finally {
+            try { if (wl != null && wl.isHeld()) wl.release(); } catch (Exception ignored) {}
+            try { if (wk != null && wk.isHeld()) wk.release(); } catch (Exception ignored) {}
         }
-        o.close();
-        in.close();
-        int rc = c.getResponseCode();
-        c.disconnect();
-        return rc;
+    }
+
+    // ---------------- مجلد الداتاشو (فالهاتف) ----------------
+    private String libHost(String code) {
+        bindWifi();
+        if (ip != null) {
+            try { if (get(ip, code, "/ping") != 200) ip = null; } catch (Exception e) { ip = null; }
+        }
+        if (ip == null) ip = findTv(code, 2500);
+        return ip;
+    }
+
+    private String phoneIp() {
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                String nn = ni.getName();
+                if (!(nn.startsWith("wlan") || nn.startsWith("ap") || nn.startsWith("swlan") || nn.startsWith("eth"))) continue;
+                for (InetAddress a : java.util.Collections.list(ni.getInetAddresses())) {
+                    if (a instanceof java.net.Inet4Address && !a.isLoopbackAddress()) return a.getHostAddress();
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private void pickTree() {
+        android.widget.Toast.makeText(this, "اختار أو أنشئ مجلد سميتو: مجلد الداتاشو", android.widget.Toast.LENGTH_LONG).show();
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(i, 6);
+    }
+
+    private void onTreePicked(Intent data) {
+        Uri t = data.getData();
+        if (t == null) return;
+        try { getContentResolver().takePersistableUriPermission(t, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) {}
+        sp.edit().putString("tree", t.toString()).apply();
+        openDataShowFolder();
+    }
+
+    private static String fileKind(String name, String mime) {
+        String l = name.toLowerCase();
+        if ("application/pdf".equals(mime) || l.endsWith(".pdf")) return "pdf";
+        if ((mime != null && mime.startsWith("image")) || l.matches(".*\\.(jpg|jpeg|png|webp|gif|bmp)$")) return "image";
+        if ((mime != null && mime.startsWith("video")) || l.matches(".*\\.(mp4|m4v|mkv|webm|3gp|avi|mov|ts)$")) return "video";
+        return null;
+    }
+
+    private void openDataShowFolder() {
+        final String t = sp.getString("tree", null);
+        if (t == null) { pickTree(); return; }
+        final List<String[]> items = new ArrayList<String[]>();   // {نوع, اسم, uri, حجم}
+        try {
+            Uri tree = Uri.parse(t);
+            Uri kids = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree,
+                    android.provider.DocumentsContract.getTreeDocumentId(tree));
+            Cursor cu = getContentResolver().query(kids, new String[]{
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    android.provider.DocumentsContract.Document.COLUMN_SIZE,
+                    android.provider.DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null);
+            if (cu != null) {
+                while (cu.moveToNext()) {
+                    String k = fileKind(cu.getString(1), cu.getString(3));
+                    if (k == null) continue;
+                    Uri du = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, cu.getString(0));
+                    items.add(new String[]{k, cu.getString(1), du.toString(), String.valueOf(cu.getLong(2))});
+                }
+                cu.close();
+            }
+        } catch (Exception e) {
+            sp.edit().remove("tree").apply();
+            setStatus("❌ ما قدرتش نقرا المجلد. اختارو من جديد.");
+            pickTree();
+            return;
+        }
+        java.util.Collections.sort(items, new java.util.Comparator<String[]>() {
+            @Override public int compare(String[] a, String[] b) { return a[1].compareToIgnoreCase(b[1]); }
+        });
+        final android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        b.setTitle("📁 مجلد الداتاشو (" + items.size() + ")");
+        b.setNeutralButton("📂 تغيير المجلد", new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface d, int w) { pickTree(); }
+        });
+        b.setNegativeButton("إغلاق", null);
+        if (items.isEmpty()) {
+            b.setMessage("المجلد خاوي. حمل الفيديوهات بـ NewPipe فهاد المجلد (صيغة MP4)، ومن بعد رجع هنا.");
+            b.show();
+            return;
+        }
+        final List<String> labels = new ArrayList<String>();
+        for (String[] it : items) {
+            long mb = 0;
+            try { mb = Long.parseLong(it[3]) >> 20; } catch (Exception ignored) {}
+            String icon = it[0].equals("video") ? "🎬" : it[0].equals("pdf") ? "📄" : "🖼";
+            labels.add(icon + "  " + it[1] + (mb > 0 ? "   (" + mb + " MB)" : ""));
+        }
+        android.widget.ListView lv = new android.widget.ListView(this);
+        lv.setAdapter(new android.widget.ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels));
+        lv.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        b.setView(lv);
+        final android.app.AlertDialog dlg = b.create();
+        lv.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
+            @Override public void onItemClick(android.widget.AdapterView<?> a, View v, int pos, long id) {
+                String[] it = items.get(pos);
+                dlg.dismiss();
+                if (it[0].equals("video")) playFromPhone(Uri.parse(it[2]), it[1]);
+                else sendUri(Uri.parse(it[2]), it[0]);
+            }
+        });
+        dlg.show();
+    }
+
+    // الفيديو كيبقى فالهاتف وكيتبث لـ TV Box بالشبكة المحلية: كيبدا فالحين، وكتقدر تقدم وترجع فيه
+    private void playFromPhone(final Uri doc, final String name) {
+        final String c = code();
+        setStatus("كنجهز " + name + "...");
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    String host = libHost(c);
+                    if (host == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                    String me = phoneIp();
+                    if (me == null) { setStatus("❌ ما لقيتش عنوان الهاتف فالواي فاي"); return; }
+                    Intent svc = new Intent(SenderActivity.this, MediaServerService.class);
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc); else startService(svc);
+                    String url = "http://" + me + ":" + MediaServerService.PORT + "/v?c=" + URLEncoder.encode(c, "UTF-8")
+                            + "&u=" + URLEncoder.encode(doc.toString(), "UTF-8");
+                    int rc = get(host, c, "/playurl?u=" + URLEncoder.encode(url, "UTF-8"));
+                    setStatus(rc == 200 ? "▶ كيتعرض: " + name : "❌ خطأ " + rc + " (واش TV Box عندو آخر نسخة؟)");
+                } catch (Exception e) {
+                    ip = null;
+                    setStatus("❌ فشل. تأكد من الواي فاي واضغط اتصل.");
+                }
+            }
+        }).start();
     }
 }

@@ -21,6 +21,10 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.wifi.WifiManager;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 
@@ -48,6 +52,10 @@ public class ScreenService extends Service {
     private int jq = 62;
     private int dpi = 320;
     private long lastCheck, lastSum, lastSent;
+    private int baseJq = 62, curJq = 62;
+    private long extraWait = 0;
+    private WifiManager.WifiLock wlock;
+    private PowerManager.WakeLock wake;
     private final ImageReader.OnImageAvailableListener frameListener = new ImageReader.OnImageAvailableListener() {
         @Override public void onImageAvailable(ImageReader r) { onFrame(r); }
     };
@@ -112,7 +120,25 @@ public class ScreenService extends Service {
 
     private void setup(int rc, Intent data, String host, String code) {
         try {
+            try {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                wlock = wm.createWifiLock(Build.VERSION.SDK_INT >= 29 ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY : WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tvlink");
+                wlock.setReferenceCounted(false);
+                wlock.acquire();
+                PowerManager pm0 = (PowerManager) getSystemService(POWER_SERVICE);
+                wake = pm0.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tvlink:cap");
+                wake.setReferenceCounted(false);
+                wake.acquire();
+            } catch (Exception ignored) {}
             sock = new Socket();
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                for (Network n : cm.getAllNetworks()) {
+                    NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                    if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) { n.bindSocket(sock); break; }
+                }
+            } catch (Exception ignored) {}
+            try { sock.setSendBufferSize(1 << 18); } catch (Exception ignored) {}
             sock.connect(new InetSocketAddress(host, Net.HTTP_PORT), 5000);
             sock.setTcpNoDelay(true);
             out = new DataOutputStream(new BufferedOutputStream(sock.getOutputStream(), 1 << 16));
@@ -143,7 +169,9 @@ public class ScreenService extends Service {
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            jq = level == 0 ? 70 : level == 1 ? 85 : level == 2 ? 90 : 94;
+            baseJq = level == 0 ? 70 : level == 1 ? 80 : level == 2 ? 85 : 90;
+            jq = curJq = baseJq;
+            extraWait = 0;
             lastSum = 0;
 
             ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, 2);
@@ -197,7 +225,7 @@ public class ScreenService extends Service {
             // الهاتف مقفل: ما نبعثوش إطارات سوداء، كتبقى آخر صورة معروضة فالداتا شو
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isInteractive()) return;
-            long wait = (level >= 3 ? 70 : level == 2 ? 50 : 35) - (SystemClock.uptimeMillis() - last);
+            long wait = (level >= 3 ? 70 : level == 2 ? 50 : 35) + extraWait - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();
             int w = r.getWidth();
@@ -220,10 +248,21 @@ public class ScreenService extends Service {
             ByteArrayOutputStream bo = new ByteArrayOutputStream(96 * 1024);
             src.compress(Bitmap.CompressFormat.JPEG, jq, bo);
             if (src != bmp) src.recycle();
+            long t0 = SystemClock.uptimeMillis();
             out.writeInt(bo.size());
             bo.writeTo(out);
             out.flush();
             lastSent = SystemClock.uptimeMillis();
+            // تكيف تلقائي: إلا الشبكة بطيئة كنخفضو الجودة والسرعة بلا ما يتبلوكا، وإلا رجعات سريعة كنرجعو
+            long took = lastSent - t0;
+            if (took > 150) {
+                curJq = Math.max(50, curJq - 8);
+                extraWait = Math.min(120, extraWait + 15);
+            } else if (took < 40) {
+                curJq = Math.min(baseJq, curJq + 2);
+                extraWait = Math.max(0, extraWait - 5);
+            }
+            jq = curJq;
         } catch (Exception e) {
             stopAll();
         } finally {
@@ -246,6 +285,8 @@ public class ScreenService extends Service {
         try { if (reader != null) reader.close(); } catch (Exception ignored) {}
         try { if (sock != null) sock.close(); } catch (Exception ignored) {}
         try { if (ht != null) ht.quitSafely(); } catch (Exception ignored) {}
+        try { if (wlock != null && wlock.isHeld()) wlock.release(); } catch (Exception ignored) {}
+        try { if (wake != null && wake.isHeld()) wake.release(); } catch (Exception ignored) {}
         vd = null;
         projection = null;
         reader = null;

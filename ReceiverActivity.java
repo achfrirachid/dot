@@ -71,6 +71,7 @@ public class ReceiverActivity extends Activity {
     private ServerSocket server;
     private DatagramSocket udp;
     private WifiManager.MulticastLock mlock;
+    private WifiManager.WifiLock wlock;
 
     private FrameLayout root;
     private VideoView video;
@@ -149,6 +150,9 @@ public class ReceiverActivity extends Activity {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
             mlock = wm.createMulticastLock("tvlink");
             mlock.acquire();
+            wlock = wm.createWifiLock(Build.VERSION.SDK_INT >= 29 ? WifiManager.WIFI_MODE_FULL_LOW_LATENCY : WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tvlink");
+            wlock.setReferenceCounted(false);
+            wlock.acquire();
         } catch (Exception ignored) {}
         startServer();
     }
@@ -311,7 +315,10 @@ public class ReceiverActivity extends Activity {
         new Thread(new Runnable() {
             @Override public void run() {
                 try {
-                    server = new ServerSocket(Net.HTTP_PORT);
+                    server = new ServerSocket();
+                    server.setReuseAddress(true);
+                    server.setReceiveBufferSize(1 << 18);
+                    server.bind(new InetSocketAddress(Net.HTTP_PORT));
                     while (running) {
                         final Socket s = server.accept();
                         new Thread(new Runnable() {
@@ -363,6 +370,7 @@ public class ReceiverActivity extends Activity {
         out.write(b);
         out.flush();
     }
+
 
     private void handle(Socket s) {
         try {
@@ -419,8 +427,8 @@ public class ReceiverActivity extends Activity {
                 File dir = new File(getCacheDir(), "in");
                 dir.mkdirs();
                 final File f = new File(dir, System.currentTimeMillis() + "_" + name);
-                FileOutputStream fo = new FileOutputStream(f);
-                byte[] buf = new byte[65536];
+                java.io.OutputStream fo = new java.io.BufferedOutputStream(new FileOutputStream(f), 1 << 18);
+                byte[] buf = new byte[1 << 18];
                 long left = len;
                 while (left > 0) {
                     int n = in.read(buf, 0, (int) Math.min(buf.length, left));
@@ -451,8 +459,8 @@ public class ReceiverActivity extends Activity {
                     if (oldf != null) for (File o : oldf) o.delete();
                 }
                 final File f = new File(dir, slot + "_" + System.currentTimeMillis() + "_" + name);
-                FileOutputStream fo = new FileOutputStream(f);
-                byte[] buf = new byte[65536];
+                java.io.OutputStream fo = new java.io.BufferedOutputStream(new FileOutputStream(f), 1 << 18);
+                byte[] buf = new byte[1 << 18];
                 long left = len;
                 while (left > 0) {
                     int n = in.read(buf, 0, (int) Math.min(buf.length, left));
@@ -464,6 +472,13 @@ public class ReceiverActivity extends Activity {
                 if (left > 0) { f.delete(); reply(out, 400, "incomplete"); return; }
                 runOnUiThread(new Runnable() {
                     @Override public void run() { multiAdd(slot, total, f, type); }
+                });
+                reply(out, 200, "ok");
+            } else if ("/playurl".equals(p)) {
+                final String pu = u.getQueryParameter("u");
+                if (pu == null || !pu.startsWith("http://")) { reply(out, 400, "bad url"); return; }
+                runOnUiThread(new Runnable() {
+                    @Override public void run() { playUrl(pu); }
                 });
                 reply(out, 200, "ok");
             } else {
@@ -529,6 +544,41 @@ public class ReceiverActivity extends Activity {
         } catch (Exception e) {
             stopMedia();
             hintView().setText("❌ ما قدرتش نعرض هاد الملف");
+        }
+    }
+
+    // فيديو كيتشغل مباشرة من الهاتف (بث بالشبكة المحلية، بلا نسخ فـ TV Box، وبلا انتظار)
+    private void playUrl(final String url) {
+        killStream();
+        front();
+        stopMedia();
+        resetZoom();
+        curFile = null;
+        curType = "video";
+        image.live = false;
+        image.setMode(FillImageView.FIT);
+        idle.setVisibility(View.GONE);
+        showing = true;
+        try {
+            video.setVisibility(View.VISIBLE);
+            video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                @Override public void onPrepared(MediaPlayer mp) {
+                    try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
+                    video.start(); applyBoost();
+                    Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
+                }
+            });
+            video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override public boolean onError(MediaPlayer mp, int what, int extra) {
+                    stopMedia();
+                    hintView().setText("❌ الفيديو ما تقراش (" + what + "/" + extra + ")\nتأكد أن الهاتف مشغل والتطبيق ما تقتلش، والفيديو MP4 (H.264)");
+                    return true;
+                }
+            });
+            video.setVideoURI(Uri.parse(url));
+        } catch (Exception e) {
+            stopMedia();
+            hintView().setText("❌ ما قدرتش نشغل الفيديو من الهاتف");
         }
     }
 
@@ -1347,6 +1397,7 @@ public class ReceiverActivity extends Activity {
         try { if (server != null) server.close(); } catch (Exception ignored) {}
         try { if (udp != null) udp.close(); } catch (Exception ignored) {}
         try { if (mlock != null && mlock.isHeld()) mlock.release(); } catch (Exception ignored) {}
+        try { if (wlock != null && wlock.isHeld()) wlock.release(); } catch (Exception ignored) {}
         stopMedia();
         super.onDestroy();
     }
