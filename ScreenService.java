@@ -19,6 +19,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
@@ -142,7 +143,7 @@ public class ScreenService extends Service {
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            jq = level == 0 ? 50 : level == 1 ? 70 : level == 2 ? 88 : 95;
+            jq = level == 0 ? 75 : level == 1 ? 90 : level == 2 ? 95 : 98;
             lastSum = 0;
 
             ImageReader nr = ImageReader.newInstance(nw, nh, PixelFormat.RGBA_8888, compat ? 3 : 2);
@@ -193,6 +194,9 @@ public class ScreenService extends Service {
             }
             img = r.acquireLatestImage();
             if (img == null || !running) return;
+            // الهاتف مقفل: ما نبعثوش إطارات سوداء، كتبقى آخر صورة معروضة فالداتا شو
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm != null && !pm.isInteractive()) return;
             long wait = (level >= 3 ? 130 : level == 2 ? 100 : 70) - (SystemClock.uptimeMillis() - last);
             if (wait > 0) SystemClock.sleep(wait);
             last = SystemClock.uptimeMillis();

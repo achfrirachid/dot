@@ -72,7 +72,7 @@ public class SenderActivity extends Activity {
         super.onCreate(b);
         sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         ip = sp.getString("ip", null);
-        mlevel = sp.getInt("mlevel", 1);
+        mlevel = sp.getInt("mlevel2", 2);
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
@@ -342,16 +342,6 @@ public class SenderActivity extends Activity {
         ipF.setTextSize(16);
         field(ipF);
         c1.addView(ipF);
-        c1.addView(full(sbtn("🔗 اتصل بـ TV Box", 0xFFBFDBFE, 0xFF2563EB, 0xFF1E3A8A, new View.OnClickListener() {
-            @Override public void onClick(View v) { connect(); }
-        })));
-        status = new TextView(this);
-        status.setTextSize(16);
-        status.setTextColor(INK);
-        status.setGravity(Gravity.CENTER);
-        status.setPadding(0, dp(8), 0, 0);
-        status.setText("دخل الكود واضغط اتصل");
-        c1.addView(status);
         l.addView(c1);
 
         // 2) إرسال الملفات
@@ -376,18 +366,11 @@ public class SenderActivity extends Activity {
 
         // 3) مشاركة شاشة الهاتف
         LinearLayout c3 = card("📱 عرض شاشة الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
-        c3.addView(full(sbtn("📱 عرض شاشة الهاتف على TV Box", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20,
-                new View.OnClickListener() {
-            @Override public void onClick(View v) { startMirror(); }
-        })));
         LinearLayout mr = row();
-        mr.addView(w(sbtn("⏹ وقف عرض الشاشة", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, new View.OnClickListener() {
-            @Override public void onClick(View v) { stopMirror(); }
-        })));
         mBtn = sbtn(levelText(), 0xFFFFF3C4, 0xFFF59E0B, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 mlevel = (mlevel + 1) % 4;
-                sp.edit().putInt("mlevel", mlevel).apply();
+                sp.edit().putInt("mlevel2", mlevel).apply();
                 mBtn.setText(levelText());
                 // تطبيق الدقة مباشرة على العرض الشغال
                 try { startService(new Intent(SenderActivity.this, ScreenService.class)
@@ -395,7 +378,7 @@ public class SenderActivity extends Activity {
             }
         });
         mBtn.setTextSize(14);
-        mr.addView(w(mBtn));
+        mr.addView(full(mBtn));
         c3.addView(mr);
         cBtn = sbtn(compatText(), 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -420,41 +403,18 @@ public class SenderActivity extends Activity {
         c3.addView(full(sbtn("🖥 شكل عرض الشاشة: ملء ← تغطية ← أصلي", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("lmode"))));
         l.addView(c3);
 
-        // 4) العرض والتكبير
-        LinearLayout c4 = card("🔍 العرض والتكبير (صورة / PDF)", 0xE6FFF3E0, 0xFFF5B25B);
-        LinearLayout z1 = row();
-        z1.addView(w(sbtn("➖", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zout"))));
-        z1.addView(w(sbtn("⟲ 1x", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zreset"))));
-        z1.addView(w(sbtn("➕", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zin"))));
-        c4.addView(z1);
-        LinearLayout z2 = row();
-        z2.addView(w(sbtn("◀", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pl"))));
-        z2.addView(w(sbtn("▲", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pu"))));
-        z2.addView(w(sbtn("▼", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pd"))));
-        z2.addView(w(sbtn("▶", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pr"))));
-        c4.addView(z2);
-        c4.addView(full(sbtn("🖼 شكل الصورة: تلقائي ← كاملة ← عرض كامل ← تغطية", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("imode"))));
-        qBtn = sbtn("🔍 الجودة: عالية", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                hq = !hq;
-                qBtn.setText(hq ? "🔍 الجودة: عالية" : "🔍 الجودة: عادية");
-                sendCmd(hq ? "qh" : "ql");
-            }
-        });
-        c4.addView(full(qBtn));
-        l.addView(c4);
-
         // 5) ضبط الصورة والألوان والكتابة (كيتحفظ فـ TV Box ويتطبق تلقائيا)
         LinearLayout c5 = card("🎛 ضبط الصورة (يتحفظ فـ TV Box)", 0xE6E3F2FD, 0xFF64B5F6);
         c5.addView(levelRow("📐 الحجم (10 = ملء الشاشة)", "fit", 1, 10, 10));
         c5.addView(levelRow("☀️ السطوع", "bri", 1, 10, 5));
         c5.addView(levelRow("◐ التباين", "con", 1, 10, 5));
         c5.addView(levelRow("🎨 الألوان", "sat", 1, 10, 5));
-        c5.addView(levelRow("🖋 غلظة الكتابة (0 = عادية)", "txt", 0, 10, 0));
-        c5.addView(levelRow("🔎 حدة الصورة (0 = بدون)", "sha", 0, 10, 0));
+        c5.addView(levelRow("🖋 غلظة الكتابة (0 = عادية)", "txt", 0, 10, 6));
+        c5.addView(levelRow("🔎 حدة الصورة (0 = بدون)", "sha", 0, 10, 7));
+        c5.addView(levelRow("🌓 إضاءة ألوان عرض الهاتف (وجوه/أحمر)", "gam", 0, 10, 5));
         LinearLayout pr = row();
         pr.addView(w(sbtn("📄 وضع الامتحان", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 8, 5, 6, 7); }
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 6, 7); }
         })));
         pr.addView(w(sbtn("🎬 وضع الصور/ألوان", 0xFFFFE0B2, 0xFFF59E0B, INK, new View.OnClickListener() {
             @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
@@ -463,6 +423,7 @@ public class SenderActivity extends Activity {
         c5.addView(full(sbtn("↺ رجوع للقيم الافتراضية", 0xFFF1F5F9, 0xFF94A3B8, INK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 preset(10, 5, 5, 5, 0, 0);
+                setLevel("gam", 5);
             }
         })));
         c5.addView(full(sbtn("🔊 اختبار الصوت (يبين المخرج)", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("beep"))));
@@ -485,15 +446,39 @@ public class SenderActivity extends Activity {
         sv.setVerticalScrollBarEnabled(false);
         sv.addView(l);
 
-        // الشريط السفلي الثابت: الفيديو + الصفحات + الصوت
+        final int BL = 0xFFDCEBFF, BS = 0xFF2563EB, BT = 0xFF1E3A8A;
+        // ===== السياج: شريط علوي =====
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.VERTICAL);
+        top.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 22, 2));
+        top.setPadding(dp(8), dp(6), dp(8), dp(6));
+        LinearLayout tr = row();
+        tr.addView(w(compact(sbtn("🔗 اتصال", BL, BS, BT, new View.OnClickListener() {
+            @Override public void onClick(View v) { connect(); }
+        }))));
+        tr.addView(w(compact(sbtn("📱 عرض الشاشة", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
+            @Override public void onClick(View v) { startMirror(); }
+        }))));
+        tr.addView(w(compact(sbtn("⏹ وقف العرض", 0xFFFFCDD2, 0xFFC62828, 0xFF7F1D1D, new View.OnClickListener() {
+            @Override public void onClick(View v) { stopMirror(); }
+        }))));
+        top.addView(tr);
+        status = new TextView(this);
+        status.setTextSize(14);
+        status.setTextColor(INK);
+        status.setGravity(Gravity.CENTER);
+        status.setText("دخل الكود واضغط اتصال");
+        top.addView(status);
+
+        // ===== السياج: السفلي =====
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.VERTICAL);
-        bar.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 26, 2));
+        bar.setBackground(shape(0xF2FFFDF8, 0xFFE7D7BE, 22, 2));
         bar.setPadding(dp(8), dp(6), dp(8), dp(6));
         LinearLayout r1 = row();
-        r1.addView(w(compact(sbtn("⏪ 10ث", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("back")))));
-        r1.addView(w(compact(sbtn("⏯", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("pause")))));
-        r1.addView(w(compact(sbtn("10ث ⏩", 0xFFDCEBFF, 0xFF2563EB, 0xFF1E3A8A, ctl("fwd")))));
+        r1.addView(w(compact(sbtn("⏪ 10ث", BL, BS, BT, ctl("back")))));
+        r1.addView(w(compact(sbtn("⏯", BL, BS, BT, ctl("pause")))));
+        r1.addView(w(compact(sbtn("10ث ⏩", BL, BS, BT, ctl("fwd")))));
         bar.addView(r1);
         LinearLayout r2 = row();
         r2.addView(w(compact(sbtn("◀ صفحة", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("prev")))));
@@ -507,15 +492,64 @@ public class SenderActivity extends Activity {
         vr.addView(w(volBtn("MAX", "volmax", false)));
         bar.addView(vr);
 
+        // ===== السياج: الجانب اليسار (تكبير) واليمين (تحريك) =====
+        qBtn = rail("🔍\nعالية", 0xFFC8E6C9, 0xFF2E7D32, 0xFF1B5E20, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                hq = !hq;
+                qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
+                sendCmd(hq ? "qh" : "ql");
+            }
+        });
+        qBtn.setTextSize(13);
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        left.addView(rail("➕", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zin")));
+        left.addView(rail("1x", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zreset")));
+        left.addView(rail("➖", 0xFFFFE0B2, 0xFFF59E0B, INK, ctl("zout")));
+        left.addView(rail("🖼", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("imode")));
+        left.addView(qBtn);
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.VERTICAL);
+        right.addView(rail("▲", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pu")));
+        right.addView(rail("◀", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pl")));
+        right.addView(rail("▶", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pr")));
+        right.addView(rail("▼", 0xFFFFF8E1, 0xFFF59E0B, INK, ctl("pd")));
+        right.addView(rail("🖥", 0xFFFFF3C4, 0xFFF59E0B, INK, ctl("lmode")));
+
+        LinearLayout mid = new LinearLayout(this);
+        mid.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(58), -1);
+        rp.setMargins(dp(4), 0, dp(2), 0);
+        mid.addView(left, rp);
+        mid.addView(sv, new LinearLayout.LayoutParams(0, -1, 1f));
+        LinearLayout.LayoutParams rp2 = new LinearLayout.LayoutParams(dp(58), -1);
+        rp2.setMargins(dp(2), 0, dp(4), 0);
+        mid.addView(right, rp2);
+
         LinearLayout rootL = new LinearLayout(this);
         rootL.setOrientation(LinearLayout.VERTICAL);
         rootL.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xFFFFF8EE, 0xFFF3E9D6}));
-        rootL.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+        tlp.setMargins(dp(8), dp(8), dp(8), dp(2));
+        rootL.addView(top, tlp);
+        rootL.addView(mid, new LinearLayout.LayoutParams(-1, 0, 1f));
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
         blp.setMargins(dp(8), dp(2), dp(8), dp(8));
         rootL.addView(bar, blp);
         setContentView(rootL);
+    }
+
+    // زر عمودي للجوانب: كيتقسم الطول بالتساوي
+    private Button rail(String t, int fill, int stroke, int tc, View.OnClickListener l) {
+        Button b = sbtn(t, fill, stroke, tc, l);
+        b.setTextSize(18);
+        b.setPadding(0, 0, 0, 0);
+        b.setMinimumHeight(0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        lp.setMargins(0, dp(3), 0, dp(3));
+        b.setLayoutParams(lp);
+        return b;
     }
 
     private void setStatus(final String s) {

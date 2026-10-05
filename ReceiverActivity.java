@@ -94,7 +94,12 @@ public class ReceiverActivity extends Activity {
     private float zoom = 1f, panX = 0f, panY = 0f;
     private FillVideoView fillView;
     // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
-    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 0, lvlSha = 0;
+    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 6, lvlSha = 7;
+    // إضاءة الظلال لعرض الهاتف (الداتا شو كتغمق الألوان): 0 = بلا / 10 = أقوى
+    private volatile int lvlGam = 5;
+    private final int[] gamLut = new int[256];
+    private int gamLutFor = -1;
+    private int[] gamPx;
     private float fit = 1f;
     // عرض شاشة الهاتف: 0 = ملء (تمديد) / 1 = تغطية (قص) / 2 = النسبة الأصلية
     private ImageView liveView;
@@ -125,8 +130,9 @@ public class ReceiverActivity extends Activity {
         lvlBri = sp.getInt("l_bri", 5);
         lvlCon = sp.getInt("l_con", 5);
         lvlSat = sp.getInt("l_sat", 5);
-        lvlTxt = sp.getInt("l_txt", 0);
-        lvlSha = sp.getInt("l_sha", 0);
+        lvlTxt = sp.getInt("l_txt", 6);
+        lvlSha = sp.getInt("l_sha", 7);
+        lvlGam = sp.getInt("l_gam", 5);
         liveMode = sp.getInt("l_live", 0);
         buildUi();
         applyLiveMode();
@@ -170,6 +176,7 @@ public class ReceiverActivity extends Activity {
 
         fillView = new FillVideoView(this);
         video = fillView;
+        fillView.setZOrderMediaOverlay(true);
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
 
@@ -478,7 +485,11 @@ public class ReceiverActivity extends Activity {
             } else {
                 video.setVisibility(View.VISIBLE);
                 video.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                    @Override public void onPrepared(MediaPlayer mp) { video.start(); applyBoost(); }
+                    @Override public void onPrepared(MediaPlayer mp) {
+                        try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
+                        video.start(); applyBoost();
+                        Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight(), Toast.LENGTH_SHORT).show();
+                    }
                 });
                 video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                     @Override public boolean onError(MediaPlayer mp, int what, int extra) {
@@ -513,6 +524,7 @@ public class ReceiverActivity extends Activity {
             if (sm != bm) bm.recycle();
             bm = sm;
         }
+        bm = thicken(bm);
         image.setImageBitmap(bm);
         image.setVisibility(View.VISIBLE);
     }
@@ -537,7 +549,49 @@ public class ReceiverActivity extends Activity {
             m.postRotate(deg);
             bm = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
         }
-        return sharpen(fitBitmap(bm));
+        return thicken(sharpen(fitBitmap(bm)));
+    }
+
+    // غلظة الكتابة: كتوسع الخطوط الداكنة بـ 1 بيكسل (erode) بلا ما تبدل ألوان الصورة
+    private static int lum(int c) { return 3 * ((c >> 16) & 0xFF) + 6 * ((c >> 8) & 0xFF) + (c & 0xFF); }
+
+    private static void erodePass(int[] a, int[] b, int w, int h, boolean horiz, float f) {
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                int i = y * w + x;
+                int o = a[i], best = o, bl = lum(o);
+                int n1 = horiz ? (x > 0 ? i - 1 : -1) : (y > 0 ? i - w : -1);
+                int n2 = horiz ? (x < w - 1 ? i + 1 : -1) : (y < h - 1 ? i + w : -1);
+                if (n1 >= 0) { int l = lum(a[n1]); if (l < bl) { bl = l; best = a[n1]; } }
+                if (n2 >= 0) { int l = lum(a[n2]); if (l < bl) { bl = l; best = a[n2]; } }
+                if (best == o || f >= 1f) { b[i] = best; continue; }
+                int r = (int) (((o >> 16) & 0xFF) + (((best >> 16) & 0xFF) - ((o >> 16) & 0xFF)) * f);
+                int g = (int) (((o >> 8) & 0xFF) + (((best >> 8) & 0xFF) - ((o >> 8) & 0xFF)) * f);
+                int bb = (int) ((o & 0xFF) + ((best & 0xFF) - (o & 0xFF)) * f);
+                b[i] = 0xFF000000 | (r << 16) | (g << 8) | bb;
+            }
+        }
+    }
+
+    private Bitmap thicken(Bitmap bm) {
+        if (bm == null || lvlTxt <= 0) return bm;
+        try {
+            int w = bm.getWidth(), h = bm.getHeight();
+            int[] a = new int[w * h];
+            int[] b = new int[w * h];
+            bm.getPixels(a, 0, w, 0, 0, w, h);
+            int passes = lvlTxt > 5 ? 2 : 1;
+            for (int p = 0; p < passes; p++) {
+                float f = (passes == 2 && p == 0) ? 1f : (lvlTxt > 5 ? (lvlTxt - 5) / 5f : lvlTxt / 5f);
+                erodePass(a, b, w, h, true, f);
+                erodePass(b, a, w, h, false, f);
+            }
+            Bitmap res = Bitmap.createBitmap(a, w, h, Bitmap.Config.ARGB_8888);
+            if (res != bm) bm.recycle();
+            return res;
+        } catch (Throwable t) {
+            return bm;
+        }
     }
 
     // حدة الصورة (للصور الملتقطة بالهاتف: امتحانات، فروض)
@@ -622,7 +676,7 @@ public class ReceiverActivity extends Activity {
 
     private void applyLevels() {
         fit = 0.60f + 0.40f * (lvlFit - 1) / 9f;
-        boolean neutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5 && lvlTxt == 0;
+        boolean neutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5;
         if (neutral) {
             image.setLayerType(View.LAYER_TYPE_NONE, null);
             multi.setLayerType(View.LAYER_TYPE_NONE, null);
@@ -637,21 +691,11 @@ public class ReceiverActivity extends Activity {
                     0, c, 0, 0, t,
                     0, 0, c, 0, t,
                     0, 0, 0, 1, 0}));
-            if (lvlTxt > 0) {
-                // كيغمق الكتابة: الرمادي كيولي أسود، والأبيض كيبقى أبيض
-                float k = 1f + 0.3f * lvlTxt;
-                float o = 255f * 0.8f * (1f - k);
-                cm.postConcat(new ColorMatrix(new float[]{
-                        k, 0, 0, 0, o,
-                        0, k, 0, 0, o,
-                        0, 0, k, 0, o,
-                        0, 0, 0, 1, 0}));
-            }
             Paint p = new Paint();
             p.setColorFilter(new ColorMatrixColorFilter(cm));
             image.setLayerType(View.LAYER_TYPE_HARDWARE, p);
             multi.setLayerType(View.LAYER_TYPE_HARDWARE, p);
-            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_HARDWARE, p);
+            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_NONE, null); // عرض الهاتف بألوانه الطبيعية بلا فلتر
         }
         applyZoom();
     }
@@ -667,7 +711,15 @@ public class ReceiverActivity extends Activity {
         else if ("bri".equals(k)) { lvlBri = clamp(n, 1, 10); ed.putInt("l_bri", lvlBri); }
         else if ("con".equals(k)) { lvlCon = clamp(n, 1, 10); ed.putInt("l_con", lvlCon); }
         else if ("sat".equals(k)) { lvlSat = clamp(n, 1, 10); ed.putInt("l_sat", lvlSat); }
-        else if ("txt".equals(k)) { lvlTxt = clamp(n, 0, 10); ed.putInt("l_txt", lvlTxt); }
+        else if ("txt".equals(k)) {
+            int old = lvlTxt;
+            lvlTxt = clamp(n, 0, 10);
+            ed.putInt("l_txt", lvlTxt);
+            ed.apply();
+            if (old != lvlTxt) reload();
+            return;
+        }
+        else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.apply(); return; }
         else if ("sha".equals(k)) {
             int old = lvlSha;
             lvlSha = clamp(n, 0, 10);
@@ -908,7 +960,7 @@ public class ReceiverActivity extends Activity {
             if (i > 0) lp.leftMargin = 4;
             multi.addView(v, lp);
             v.setMode(FillImageView.FIT);
-            if (bm != null) v.setImageBitmap(bm);
+            if (bm != null) v.setImageBitmap(thicken(bm));
         }
         idle.setVisibility(View.GONE);
         image.setVisibility(View.GONE);
@@ -1041,6 +1093,49 @@ public class ReceiverActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    // كيرفع الظلال والألوان الغامقة (الوجوه، اليدين، الأحمر) باش تبان بحال اليوتيوب فالداتا شو
+    private Bitmap applyGamma(Bitmap b) {
+        int g = lvlGam;
+        if (g <= 0 || b == null) return b;
+        try {
+            if (gamLutFor != g) {
+                double gm = 1.0 - 0.05 * g;
+                for (int i = 0; i < 256; i++) gamLut[i] = (int) Math.round(255.0 * Math.pow(i / 255.0, gm));
+                gamLutFor = g;
+            }
+            int w = b.getWidth(), h = b.getHeight();
+            if (gamPx == null || gamPx.length != w * h) gamPx = new int[w * h];
+            int[] px = gamPx;
+            b.getPixels(px, 0, w, 0, 0, w, h);
+            final int[] L = gamLut;
+            for (int i = 0; i < px.length; i++) {
+                int p = px[i];
+                px[i] = 0xFF000000 | (L[(p >> 16) & 0xFF] << 16) | (L[(p >> 8) & 0xFF] << 8) | L[p & 0xFF];
+            }
+            Bitmap res = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+            if (res != b) b.recycle();
+            return res;
+        } catch (Throwable t) {
+            return b;
+        }
+    }
+
+    // تصغير بدقة لحجم الشاشة (بدل ما يخلي الـ GPU يصغر 2560 -> 1080 فتولي الكتابة مقطعة)
+    private Bitmap fitToScreen(Bitmap b) {
+        try {
+            int rw = root.getWidth(), rh = root.getHeight();
+            if (rw == 0 || rh == 0) return b;
+            float s = Math.min(1f, Math.max((float) rw / b.getWidth(), (float) rh / b.getHeight()));
+            if (s > 0.98f) return b;
+            Bitmap o = Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * s)),
+                    Math.max(1, Math.round(b.getHeight() * s)), true);
+            if (o != b) b.recycle();
+            return o;
+        } catch (Throwable t) {
+            return b;
+        }
+    }
+
     private void streamLoop(InputStream in) {
         final int id = streamId.incrementAndGet();
         runOnUiThread(new Runnable() {
@@ -1064,9 +1159,15 @@ public class ReceiverActivity extends Activity {
                 if (buf.length < n) buf = new byte[n];
                 di.readFully(buf, 0, n);
                 if (pending.get()) continue;
-                final Bitmap raw = BitmapFactory.decodeByteArray(buf, 0, n);
+                BitmapFactory.Options dop = new BitmapFactory.Options();
+                dop.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                dop.inDither = false;
+                if (Build.VERSION.SDK_INT >= 26) {
+                    try { dop.inPreferredColorSpace = android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.SRGB); } catch (Throwable ignored) {}
+                }
+                final Bitmap raw = BitmapFactory.decodeByteArray(buf, 0, n, dop);
                 if (raw == null) continue;
-                final Bitmap bm = autoCrop(raw);
+                final Bitmap bm = applyGamma(fitToScreen(autoCrop(raw)));
                 pending.set(true);
                 runOnUiThread(new Runnable() {
                     @Override public void run() {
@@ -1076,11 +1177,7 @@ public class ReceiverActivity extends Activity {
                 });
             }
         } catch (Exception ignored) {}
-        if (streamId.get() == id) {
-            runOnUiThread(new Runnable() {
-                @Override public void run() { if (streamId.get() == id) stopMedia(); }
-            });
-        }
+        // الهاتف تقفل/وقف الإرسال: كنخليو آخر صورة معروضة حتى تخرج يدويا (زر وقف أو رجوع)
     }
 
     private void openApp(String app, String q) {
