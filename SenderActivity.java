@@ -513,9 +513,10 @@ public class SenderActivity extends Activity {
         center.addView(vw(dpad, 3.3f));
 
         LinearLayout zr = box(false);
-        zr.addView(hw(holdBtn("🔍➖", "zout", C_ORANGE, 350), 1f));
-        zr.addView(hw(gbtn("1x", C_ORANGE, ctl("zreset")), 0.8f));
-        zr.addView(hw(holdBtn("🔍➕", "zin", C_ORANGE, 350), 1f));
+        zr.addView(hw(holdBtn("−", "zout", C_ORANGE, 350), 1f));
+        zBtn = gbtn("1x", C_ORANGE, ctl("zreset"));
+        zr.addView(hw(zBtn, 0.8f));
+        zr.addView(hw(holdBtn("+", "zin", C_ORANGE, 350), 1f));
         center.addView(vw(zr, 1f));
 
         LinearLayout vr = box(false);
@@ -681,7 +682,7 @@ public class SenderActivity extends Activity {
     private Button tSpd, bBtn;
     private volatile boolean videoOn, dragging;
     private volatile long videoStart;
-    private static final int[] SPD = {5, 7, 10, 12, 15, 20};
+    private static final int[] SPD = {5, 10, 15, 20};   // خطوات 0.5
     private final java.util.concurrent.atomic.AtomicBoolean polling = new java.util.concurrent.atomic.AtomicBoolean();
     private final java.util.concurrent.ExecutorService pollPool = java.util.concurrent.Executors.newSingleThreadExecutor();
 
@@ -733,20 +734,26 @@ public class SenderActivity extends Activity {
         r2.addView(hw(gbtn("⏪ 10", C_BLUE, ctl("back")), 1f));
         r2.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 1f));
         r2.addView(hw(gbtn("10 ⏩", C_BLUE, ctl("fwd")), 1f));
-        r2.addView(hw(gbtn("🐢", C_AMBER, new View.OnClickListener() {
+        r2.addView(hw(gbtn("−", C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) { stepSpeed(-1); }
         }), 0.8f));
         tSpd = gbtn(spdText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) { setSpeed(10); }
         });
         r2.addView(hw(tSpd, 1f));
-        r2.addView(hw(gbtn("🐇", C_AMBER, new View.OnClickListener() {
+        r2.addView(hw(gbtn("+", C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) { stepSpeed(1); }
         }), 0.8f));
         r2.addView(hw(gbtn("⏹", C_RED, new View.OnClickListener() {
             @Override public void onClick(View v) { hideVideoBar(); sendCmd("stop"); }
         }), 0.8f));
         vbar.addView(r2, new LinearLayout.LayoutParams(-1, dp(44)));
+        // ألوان خاصة بالفيديو (منفصلة عن الصور والامتحانات)
+        LinearLayout r3 = box(false);
+        r3.addView(hw(levelCell("☀️ سطوع الفيديو", "vbri", 1, 10, 5), 1f));
+        r3.addView(hw(levelCell("◐ تباين الفيديو", "vcon", 1, 10, 5), 1f));
+        r3.addView(hw(levelCell("🎨 ألوان الفيديو", "vsat", 1, 10, 5), 1f));
+        vbar.addView(r3, new LinearLayout.LayoutParams(-1, dp(60)));
         return vbar;
     }
 
@@ -1157,7 +1164,16 @@ public class SenderActivity extends Activity {
     private final java.util.concurrent.ExecutorService cmdPool = java.util.concurrent.Executors.newSingleThreadExecutor();
     private volatile String cmdCode;
 
+    private Button zBtn;
+    private float zl = 1f;
+
     private void sendCmd(final String cmd) {
+        if ("zin".equals(cmd)) zl = Math.min(6f, zl + 0.5f);
+        else if ("zout".equals(cmd)) zl = Math.max(1f, zl - 0.5f);
+        else if ("zreset".equals(cmd)) zl = 1f;
+        if (zBtn != null && cmd.startsWith("z")) ui.post(new Runnable() {
+            @Override public void run() { zBtn.setText((zl == (int) zl ? String.valueOf((int) zl) : String.valueOf(zl)) + "x"); }
+        });
         if ("stop".equals(cmd)) releaseCastLocks();
         if (cmdCode == null) cmdCode = code();
         final String c = cmdCode;

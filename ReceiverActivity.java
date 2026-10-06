@@ -101,6 +101,7 @@ public class ReceiverActivity extends Activity {
     private float zoom = 1f, panX = 0f, panY = 0f;
     // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
     private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 0, lvlSha = 0;
+    private int lvlVbri = 5, lvlVcon = 5, lvlVsat = 5;   // سطوع/تباين/ألوان الفيديو (منفصلة عن الصور)
     // إضاءة الظلال لعرض الهاتف (الداتا شو كتغمق الألوان): 0 = بلا / 10 = أقوى
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
@@ -150,6 +151,9 @@ public class ReceiverActivity extends Activity {
         lvlBri = sp.getInt("l_bri", 5);
         lvlCon = sp.getInt("l_con", 5);
         lvlSat = sp.getInt("l_sat", 5);
+        lvlVbri = sp.getInt("l_vbri", 5);
+        lvlVcon = sp.getInt("l_vcon", 5);
+        lvlVsat = sp.getInt("l_vsat", 5);
         lvlTxt = sp.getInt("l_txt", 0);   // غلظة الكتابة: 0 افتراضيا وكتتحفظ
         quality = sp.getInt("l_quality", 2);
         lvlSha = sp.getInt("l_sha", 0);
@@ -415,6 +419,9 @@ public class ReceiverActivity extends Activity {
         if ("bri".equals(k)) return lvlBri;
         if ("con".equals(k)) return lvlCon;
         if ("sat".equals(k)) return lvlSat;
+        if ("vbri".equals(k)) return lvlVbri;
+        if ("vcon".equals(k)) return lvlVcon;
+        if ("vsat".equals(k)) return lvlVsat;
         if ("txt".equals(k)) return lvlTxt;
         if ("sha".equals(k)) return lvlSha;
         if ("gam".equals(k)) return lvlGam;
@@ -456,7 +463,7 @@ public class ReceiverActivity extends Activity {
 
     private void refreshPanel() {
         for (java.util.Map.Entry<String, TextView> e : vpVals.entrySet())
-            e.getValue().setText(lvlOf(e.getKey()) + "/10");
+            e.getValue().setText("spd".equals(e.getKey()) ? (spd / 10) + "." + (spd % 10) + "x" : lvlOf(e.getKey()) + "/10");
     }
 
     private void refreshSettings() {
@@ -499,6 +506,24 @@ public class ReceiverActivity extends Activity {
         }
         vpanel.addView(tr);
 
+        // السرعة بخطوات 0.5 (0.5 → 2.0)
+        LinearLayout sr = new LinearLayout(this);
+        sr.setOrientation(LinearLayout.HORIZONTAL);
+        sr.setGravity(Gravity.CENTER_VERTICAL);
+        sr.addView(pTv("\u23E9 السرعة", 16), new LinearLayout.LayoutParams(0, -2, 1f));
+        Button sm = pBtn("\u2212");
+        Button spl = pBtn("+");
+        final TextView sv2 = pTv("", 18);
+        sv2.setGravity(Gravity.CENTER);
+        sv2.setMinWidth(dpx(60));
+        vpVals.put("spd", sv2);
+        sm.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { levelCmd("spd:" + (spd - 5)); refreshPanel(); pKeep(); } });
+        spl.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { levelCmd("spd:" + (spd + 5)); refreshPanel(); pKeep(); } });
+        sr.addView(sm); sr.addView(sv2); sr.addView(spl);
+        vpanel.addView(sr);
+        vpanel.addView(pRow("\u2600 سطوع الفيديو", "vbri", false));
+        vpanel.addView(pRow("\u25D0 تباين الفيديو", "vcon", false));
+        vpanel.addView(pRow("\uD83C\uDFA8 ألوان الفيديو", "vsat", false));
         vpanel.addView(pRow("\uD83C\uDF13 تعتيم البياض", "vdim", false));
         vpanel.addView(pRow("\uD83D\uDCD0 الحجم", "fit", false));
         LinearLayout br = new LinearLayout(this);
@@ -506,7 +531,7 @@ public class ReceiverActivity extends Activity {
         Button def = pBtn("\u21BA افتراضي");
         def.setTextSize(15);
         def.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { levelCmd("vdim:6"); levelCmd("fit:10"); refreshPanel(); pKeep(); }
+            @Override public void onClick(View v) { levelCmd("vdim:6"); levelCmd("fit:10"); levelCmd("vbri:5"); levelCmd("vcon:5"); levelCmd("vsat:5"); levelCmd("spd:10"); refreshPanel(); pKeep(); }
         });
         Button ok = pBtn("\u2713 حفظ وإخفاء");
         ok.setTextSize(15);
@@ -564,6 +589,9 @@ public class ReceiverActivity extends Activity {
         body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
         body.addView(pRow("\uD83C\uDF13 إضاءة الوجوه", "gam", true));
         body.addView(pRow("\uD83C\uDFA5 تعتيم الفيديو", "vdim", true));
+        body.addView(pRow("\u2600 سطوع الفيديو", "vbri", true));
+        body.addView(pRow("\u25D0 تباين الفيديو", "vcon", true));
+        body.addView(pRow("\uD83C\uDFA8 ألوان الفيديو", "vsat", true));
 
         sAuto = sBtn("", new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -803,7 +831,7 @@ public class ReceiverActivity extends Activity {
             if ("/ping".equals(p)) {
                 reply(out, 200, "ok");
             } else if ("/levels".equals(p)) {
-                reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat
+                reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
                         + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
             } else if ("/vstat".equals(p)) {
@@ -1269,8 +1297,19 @@ public class ReceiverActivity extends Activity {
                 0, 0, 0, 1, 0}));
         // الفيديو: سطوع/تباين/ألوان فقط
         if (video != null) {
-            if (baseNeutral) video.setLayerType(View.LAYER_TYPE_NONE, null);
-            else { Paint pv = new Paint(); pv.setColorFilter(new ColorMatrixColorFilter(cm)); video.setLayerType(View.LAYER_TYPE_HARDWARE, pv); }
+            if (lvlVbri == 5 && lvlVcon == 5 && lvlVsat == 5) video.setLayerType(View.LAYER_TYPE_NONE, null);
+            else {
+                ColorMatrix cv = new ColorMatrix();
+                cv.setSaturation(0.5f + 0.1f * lvlVsat);
+                float vc = lvlVcon <= 5 ? 0.5f + 0.1f * lvlVcon : 1f + 0.25f * (lvlVcon - 5);
+                float vt = 128f * (1f - vc) + (lvlVbri - 5) * 10f;
+                cv.postConcat(new ColorMatrix(new float[]{
+                        vc, 0, 0, 0, vt,
+                        0, vc, 0, 0, vt,
+                        0, 0, vc, 0, vt,
+                        0, 0, 0, 1, 0}));
+                Paint pv = new Paint(); pv.setColorFilter(new ColorMatrixColorFilter(cv)); video.setLayerType(View.LAYER_TYPE_HARDWARE, pv);
+            }
         }
         // الصور وPDF: نفس الشيء + وضع السبورة (قلب الألوان: ورقة سوداء وكتابة بيضاء)
         if (baseNeutral && inv == 0) {
@@ -1352,6 +1391,9 @@ public class ReceiverActivity extends Activity {
         else if ("bri".equals(k)) { lvlBri = clamp(n, 1, 10); ed.putInt("l_bri", lvlBri); }
         else if ("con".equals(k)) { lvlCon = clamp(n, 1, 10); ed.putInt("l_con", lvlCon); }
         else if ("sat".equals(k)) { lvlSat = clamp(n, 1, 10); ed.putInt("l_sat", lvlSat); }
+        else if ("vbri".equals(k)) { lvlVbri = clamp(n, 1, 10); ed.putInt("l_vbri", lvlVbri); }
+        else if ("vcon".equals(k)) { lvlVcon = clamp(n, 1, 10); ed.putInt("l_vcon", lvlVcon); }
+        else if ("vsat".equals(k)) { lvlVsat = clamp(n, 1, 10); ed.putInt("l_vsat", lvlVsat); }
         else if ("txt".equals(k)) {
             int old = lvlTxt;
             lvlTxt = clamp(n, 0, 10);
@@ -1369,7 +1411,7 @@ public class ReceiverActivity extends Activity {
             return;
         }
         else if ("spd".equals(k)) {
-            spd = clamp(n, 5, 20);
+            spd = clamp(Math.round(n / 5f) * 5, 5, 20);
             ed.putInt("l_spd", spd);
             ed.apply();
             video.setSpeed(spd / 10f);
@@ -1407,6 +1449,7 @@ public class ReceiverActivity extends Activity {
         refreshSettings();
         // تغيير من الهاتف أثناء الفيديو: رسالة صغيرة كتبان 2 تواني
         String lab = "bri".equals(k) ? "☀ السطوع" : "con".equals(k) ? "◐ التباين" : "sat".equals(k) ? "🎨 الألوان"
+                : "vbri".equals(k) ? "☀ سطوع الفيديو" : "vcon".equals(k) ? "◐ تباين الفيديو" : "vsat".equals(k) ? "🎨 ألوان الفيديو"
                 : "vdim".equals(k) ? "🎥 التعتيم" : "📐 الحجم";
         hud(lab + ": " + lvlOf(k) + "/10");
     }
@@ -1548,11 +1591,11 @@ public class ReceiverActivity extends Activity {
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).apply();
                 break;
             case "zin":
-                zoom = Math.min(6f, zoom * 1.25f); applyZoom();
+                zoom = Math.min(6f, Math.round((zoom + 0.5f) * 2f) / 2f); applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zout":
-                zoom = zoom / 1.25f; applyZoom();
+                zoom = Math.max(1f, Math.round((zoom - 0.5f) * 2f) / 2f); applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zreset":
