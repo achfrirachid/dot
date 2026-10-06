@@ -20,7 +20,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.provider.Settings;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.graphics.Color;
@@ -38,6 +40,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import java.io.InputStream;
@@ -81,7 +84,13 @@ public class SenderActivity extends Activity {
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
         hq = sp.getBoolean("hq", true);
-        if (!sp.getBoolean("vdim6", false)) sp.edit().remove("s_vdim").putBoolean("vdim6", true).apply();
+        // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
+        if (!sp.getBoolean("def0v1", false)) {
+            SharedPreferences.Editor me = sp.edit().putBoolean("def0v1", true);
+            if (sp.getInt("s_txt", 0) == 1) me.putInt("s_txt", 0);
+            if (sp.getInt("s_sha", 0) == 7) me.putInt("s_sha", 0);
+            me.apply();
+        }
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
         bindWifi();
         buildUi();
@@ -98,6 +107,16 @@ public class SenderActivity extends Activity {
     protected void onResume() {
         super.onResume();
         applyAutoRotate();
+        ui.removeCallbacks(keep);
+        ui.postDelayed(keep, 3000);
+        if (videoOn) { ui.removeCallbacks(poll); ui.post(poll); }
+    }
+
+    @Override
+    protected void onPause() {
+        ui.removeCallbacks(keep);
+        ui.removeCallbacks(poll);
+        super.onPause();
     }
 
     @Override
@@ -408,6 +427,9 @@ public class SenderActivity extends Activity {
         ipF.setHint("🌐 IP (اختياري)");
         ipF.setInputType(InputType.TYPE_CLASS_PHONE);
         field(ipF, 13);
+        ipF.setText(sp.getString("manual_ip", ""));
+        autoSave(codeF, "paircode");
+        autoSave(ipF, "manual_ip");
         Button cn = gbtn("🔗 اتصال", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { connect(); }
         });
@@ -429,13 +451,13 @@ public class SenderActivity extends Activity {
         left.addView(vw(levelCell("☀️ السطوع", "bri", 1, 10, 5), 1f));
         left.addView(vw(levelCell("◐ التباين", "con", 1, 10, 5), 1f));
         left.addView(vw(levelCell("🎨 الألوان", "sat", 1, 10, 5), 1f));
-        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 1), 1f));
-        left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 7), 1f));
+        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 0), 1f));
+        left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 0), 1f));
         left.addView(vw(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5), 1f));
         left.addView(vw(levelCell("🎥 تعتيم الفيديو", "vdim", 0, 10, 6), 1f));
         LinearLayout lr1 = box(false);
         lr1.addView(hw(gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 6, 5, 8, 8); }
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
         }), 1f));
         lr1.addView(hw(gbtn("🎬\nألوان", C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
@@ -443,7 +465,7 @@ public class SenderActivity extends Activity {
         left.addView(vw(lr1, 1.1f));
         LinearLayout lr2 = box(false);
         lr2.addView(hw(gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 1, 0); setLevel("gam", 5); setLevel("vdim", 6); }
+            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); setLevel("vdim", 6); }
         }), 1f));
         lr2.addView(hw(gbtn("⚙️\nالوضع", C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -453,6 +475,15 @@ public class SenderActivity extends Activity {
             }
         }), 1f));
         left.addView(vw(lr2, 1.1f));
+        bBtn = gbtn(invText(), C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                int nv = sp.getInt("s_inv", 0) == 1 ? 0 : 1;
+                sp.edit().putInt("s_inv", nv).putBoolean("s_dirty", true).apply();
+                bBtn.setText(invText());
+                sendCmd("inv:" + nv);
+            }
+        });
+        left.addView(vw(bBtn, 0.9f));
 
         // ===== العمود الوسط: الأسهم + التكبير + الصوت + التشغيل =====
         LinearLayout center = glassCard("🎮 تحكم", 0xF2FFFDF8, 0xFFE7D7BE);
@@ -508,7 +539,7 @@ public class SenderActivity extends Activity {
         qBtn = gbtn(hq ? "🔍\nعالية" : "🔍\nعادية", C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 hq = !hq;
-                sp.edit().putBoolean("hq", hq).apply();
+                sp.edit().putBoolean("hq", hq).putBoolean("s_dirty", true).apply();
                 qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
                 sendCmd(hq ? "qh" : "ql");
             }
@@ -561,7 +592,7 @@ public class SenderActivity extends Activity {
         gBtn = gbtn(glassText(), C_PINK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 glassOn = !glassOn;
-                sp.edit().putInt("s_glass", glassOn ? 1 : 0).apply();
+                sp.edit().putInt("s_glass", glassOn ? 1 : 0).putBoolean("s_dirty", true).apply();
                 gBtn.setText(glassText());
                 sendCmd("glass:" + (glassOn ? 1 : 0));
             }
@@ -605,12 +636,6 @@ public class SenderActivity extends Activity {
             e.setTextSize(20);
             e.setGravity(Gravity.CENTER);
             deco.addView(hw(e, 1f));
-            ObjectAnimator a = ObjectAnimator.ofFloat(e, "translationY", 0f, -dp(5));
-            a.setDuration(1100 + i * 140);
-            a.setRepeatCount(ValueAnimator.INFINITE);
-            a.setRepeatMode(ValueAnimator.REVERSE);
-            a.start();
-            anims.add(a);
         }
         content.addView(deco, new LinearLayout.LayoutParams(-1, dp(30)));
         TextView mainTitle = new TextView(this);
@@ -630,6 +655,7 @@ public class SenderActivity extends Activity {
         content.addView(subTitle, stl);
         content.addView(top, tl);
         content.addView(mid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        content.addView(buildVbar(), new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, dp(54));
         bl.setMargins(0, dp(4), 0, 0);
         content.addView(bar, bl);
@@ -648,6 +674,178 @@ public class SenderActivity extends Activity {
         setContentView(root);
     }
 
+    // ---------------- تحكم الفيديو (كيبان ملي فيديو كيتعرض فالداتا شو) ----------------
+    private LinearLayout vbar;
+    private SeekBar seek;
+    private TextView tCur, tDur;
+    private Button tSpd, bBtn;
+    private volatile boolean videoOn, dragging;
+    private volatile long videoStart;
+    private static final int[] SPD = {5, 7, 10, 12, 15, 20};
+    private final java.util.concurrent.atomic.AtomicBoolean polling = new java.util.concurrent.atomic.AtomicBoolean();
+    private final java.util.concurrent.ExecutorService pollPool = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    private static String fmt(int ms) {
+        int sec = Math.max(0, ms / 1000);
+        return (sec / 60) + ":" + (sec % 60 < 10 ? "0" : "") + (sec % 60);
+    }
+
+    private String spdText() {
+        int v = sp.getInt("s_spd", 10);
+        return (v / 10) + "." + (v % 10) + "x";
+    }
+
+    private String invText() {
+        return "🌑 سبورة (قلب الألوان)\n" + (sp.getInt("s_inv", 0) == 1 ? "مفعل ✅" : "ملغى");
+    }
+
+    private void stepSpeed(int dir) {
+        int cur = sp.getInt("s_spd", 10), idx = 0;
+        for (int i = 0; i < SPD.length; i++) if (SPD[i] <= cur) idx = i;
+        setSpeed(SPD[Math.max(0, Math.min(SPD.length - 1, idx + dir))]);
+    }
+
+    private void setSpeed(int v) {
+        sp.edit().putInt("s_spd", v).putBoolean("s_dirty", true).apply();
+        tSpd.setText(spdText());
+        sendCmd("spd:" + v);
+    }
+
+    private LinearLayout buildVbar() {
+        vbar = glassCard(null, 0xF2FFFDF8, 0xFFE7D7BE);
+        vbar.setVisibility(View.GONE);
+        LinearLayout r1 = box(false);
+        r1.setGravity(Gravity.CENTER_VERTICAL);
+        tCur = label("0:00", 12, true);
+        tDur = label("0:00", 12, true);
+        seek = new SeekBar(this);
+        seek.setMax(1);
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar b, int p, boolean user) { if (user) tCur.setText(fmt(p)); }
+            @Override public void onStartTrackingTouch(SeekBar b) { dragging = true; }
+            @Override public void onStopTrackingTouch(SeekBar b) { dragging = false; sendCmd("seek:" + b.getProgress()); }
+        });
+        r1.addView(tCur, new LinearLayout.LayoutParams(dp(46), -2));
+        r1.addView(seek, new LinearLayout.LayoutParams(0, -2, 1f));
+        r1.addView(tDur, new LinearLayout.LayoutParams(dp(46), -2));
+        vbar.addView(r1, new LinearLayout.LayoutParams(-1, dp(36)));
+        LinearLayout r2 = box(false);
+        r2.addView(hw(gbtn("⏪ 10", C_BLUE, ctl("back")), 1f));
+        r2.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 1f));
+        r2.addView(hw(gbtn("10 ⏩", C_BLUE, ctl("fwd")), 1f));
+        r2.addView(hw(gbtn("🐢", C_AMBER, new View.OnClickListener() {
+            @Override public void onClick(View v) { stepSpeed(-1); }
+        }), 0.8f));
+        tSpd = gbtn(spdText(), C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) { setSpeed(10); }
+        });
+        r2.addView(hw(tSpd, 1f));
+        r2.addView(hw(gbtn("🐇", C_AMBER, new View.OnClickListener() {
+            @Override public void onClick(View v) { stepSpeed(1); }
+        }), 0.8f));
+        r2.addView(hw(gbtn("⏹", C_RED, new View.OnClickListener() {
+            @Override public void onClick(View v) { hideVideoBar(); sendCmd("stop"); }
+        }), 0.8f));
+        vbar.addView(r2, new LinearLayout.LayoutParams(-1, dp(44)));
+        return vbar;
+    }
+
+    private void showVideoBar() {
+        ui.post(new Runnable() {
+            @Override public void run() {
+                videoOn = true;
+                videoStart = System.currentTimeMillis();
+                tSpd.setText(spdText());
+                vbar.setVisibility(View.VISIBLE);
+                ui.removeCallbacks(poll);
+                ui.post(poll);
+            }
+        });
+    }
+
+    private void hideVideoBar() {
+        videoOn = false;
+        ui.removeCallbacks(poll);
+        ui.post(new Runnable() { @Override public void run() { vbar.setVisibility(View.GONE); } });
+    }
+
+    // كيسول TV Box كل ثانية (غير ملي الفيديو شغال والتطبيق مفتوح) باش يتحرك الشريط
+    private final Runnable poll = new Runnable() {
+        @Override public void run() {
+            if (!videoOn) return;
+            ui.postDelayed(this, 1000);
+            final String host = ip;
+            if (host == null || !polling.compareAndSet(false, true)) return;
+            pollPool.execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        String b = getBodyT(host, curCode(), "/vstat", 1200, 1500);
+                        if (b == null) return;
+                        String[] a = b.split(",");
+                        final int pos = Integer.parseInt(a[0]), dur = Integer.parseInt(a[1]), vis = Integer.parseInt(a[4]);
+                        ui.post(new Runnable() {
+                            @Override public void run() {
+                                if (vis == 0) {
+                                    if (System.currentTimeMillis() - videoStart > 5000) { videoOn = false; vbar.setVisibility(View.GONE); }
+                                    return;
+                                }
+                                tDur.setText(fmt(dur));
+                                if (!dragging) {
+                                    seek.setMax(Math.max(1, dur));
+                                    seek.setProgress(pos);
+                                    tCur.setText(fmt(pos));
+                                }
+                            }
+                        });
+                    } catch (Exception ignored) {
+                    } finally {
+                        polling.set(false);
+                    }
+                }
+            });
+        }
+    };
+
+    private String curCode() { return cmdCode != null ? cmdCode : sp.getString("paircode", Net.DEFAULT_CODE); }
+
+    // ربط تلقائي: كل 10 ثواني كيتأكد من الاتصال، وإلا TV Box تشعل من بعد كيتصل بوحدو (بلا ما تضغط)
+    private volatile boolean keepBusy;
+    private final Runnable keep = new Runnable() {
+        @Override public void run() {
+            ui.postDelayed(this, 10000);
+            if (keepBusy) return;
+            keepBusy = true;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        String c = curCode();
+                        String host = ip;
+                        boolean ok = false;
+                        if (host != null) { try { ok = get(host, c, "/ping") == 200; } catch (Exception ignored) {} }
+                        if (ok) return;
+                        bindWifi();
+                        String f = null;
+                        String man = sp.getString("manual_ip", "");
+                        if (man != null && !man.isEmpty()) { try { if (get(man, c, "/ping") == 200) f = man; } catch (Exception ignored) {} }
+                        if (f == null) f = discover(c, 1500);
+                        if (f != null) {
+                            ip = f;
+                            sp.edit().putString("ip", f).apply();
+                            setStatus("✅ متصل بـ TV Box (" + f + ")");
+                            if (sp.getBoolean("s_dirty", false) || !pullLevels(f, c)) syncLevels();
+                        } else if (host != null) {
+                            ip = null;
+                            setStatus("⏳ كنقلب على TV Box...");
+                        }
+                    } catch (Exception ignored) {
+                    } finally {
+                        keepBusy = false;
+                    }
+                }
+            }).start();
+        }
+    };
+
     private void setStatus(final String s) {
         ui.post(new Runnable() { @Override public void run() { status.setText(s); } });
     }
@@ -660,7 +858,7 @@ public class SenderActivity extends Activity {
     private void setLevel(String key, int v) {
         int[] rg = lvlRange.get(key);
         v = Math.max(rg[0], Math.min(rg[1], v));
-        sp.edit().putInt("s_" + key, v).apply();
+        sp.edit().putInt("s_" + key, v).putBoolean("s_dirty", true).apply();
         lvlViews.get(key).setText(v + "/" + rg[1]);
         sendCmd(key + ":" + v);
     }
@@ -678,6 +876,8 @@ public class SenderActivity extends Activity {
                     sendCmd(k + ":" + sp.getInt("s_" + k, lvlDef.get(k)));
                 }
                 sendCmd("glass:" + (glassOn ? 1 : 0));
+                sendCmd("spd:" + sp.getInt("s_spd", 10));
+                sendCmd("inv:" + sp.getInt("s_inv", 0));
                 sendCmd(hq ? "qh" : "ql");
             }
         });
@@ -842,6 +1042,84 @@ public class SenderActivity extends Activity {
         return rc;
     }
 
+    private void flag(String cmd, boolean dirty) {
+        if (cmd.indexOf(':') > 0 || "qh".equals(cmd) || "ql".equals(cmd))
+            sp.edit().putBoolean("s_dirty", dirty).apply();
+    }
+
+    private void autoSave(final EditText e, final String key) {
+        e.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable t) {
+                String v = t.toString().trim();
+                sp.edit().putString(key, v).apply();
+                if ("paircode".equals(key)) cmdCode = v;
+            }
+        });
+    }
+
+    private String getBody(String host, String code, String path) throws Exception {
+        return getBodyT(host, code, path, 4000, 8000);
+    }
+
+    private String getBodyT(String host, String code, String path, int ct, int rt) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL("http://" + host + ":" + Net.HTTP_PORT + path).openConnection();
+        c.setConnectTimeout(ct);
+        c.setReadTimeout(rt);
+        c.setRequestProperty("X-Code", code);
+        try {
+            if (c.getResponseCode() != 200) return null;
+            InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[512];
+            int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            in.close();
+            return bo.toString("UTF-8");
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    // الإعدادات المحفوظة فـ TV Box هي المرجع: كنجبدوها للهاتف ملي كنتصلو (باش تغييرات لوحة TV ما تضيعش)
+    private boolean pullLevels(String host, String code) {
+        try {
+            String body = getBody(host, code, "/levels");
+            if (body == null || body.isEmpty()) return false;
+            SharedPreferences.Editor ed = sp.edit();
+            for (String kv : body.split(",")) {
+                String[] p = kv.split("=");
+                if (p.length != 2) continue;
+                String k = p[0].trim();
+                int v = Integer.parseInt(p[1].trim());
+                if (lvlRange.containsKey(k)) ed.putInt("s_" + k, v);
+                else if ("glass".equals(k)) ed.putInt("s_glass", v);
+                else if ("q".equals(k)) ed.putBoolean("hq", v == 2);
+                else if ("spd".equals(k)) ed.putInt("s_spd", v);
+                else if ("inv".equals(k)) ed.putInt("s_inv", v);
+            }
+            ed.apply();
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    for (String k : lvlRange.keySet()) {
+                        TextView tv = lvlViews.get(k);
+                        if (tv != null) tv.setText(sp.getInt("s_" + k, lvlDef.get(k)) + "/" + lvlRange.get(k)[1]);
+                    }
+                    glassOn = sp.getInt("s_glass", 1) == 1;
+                    hq = sp.getBoolean("hq", true);
+                    if (gBtn != null) gBtn.setText(glassText());
+                    if (qBtn != null) qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
+                    if (tSpd != null) tSpd.setText(spdText());
+                    if (bBtn != null) bBtn.setText(invText());
+                }
+            });
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private String code() {
         String c = codeF.getText().toString().trim();
         cmdCode = c;
@@ -867,7 +1145,7 @@ public class SenderActivity extends Activity {
                     ip = found;
                     sp.edit().putString("ip", found).apply();
                     setStatus("✅ متصل بـ TV Box (" + found + ")");
-                    syncLevels();
+                    if (sp.getBoolean("s_dirty", false) || !pullLevels(found, c)) syncLevels();
                 } else {
                     setStatus("❌ ما لقيتش TV Box. تأكد: نفس الواي فاي، الكود صحيح، التطبيق مفتوح في TV Box.");
                 }
@@ -889,7 +1167,7 @@ public class SenderActivity extends Activity {
                 if (host == null) {
                     bindWifi();
                     host = findTv(c, 2500);
-                    if (host == null) { setStatus("❌ اضغط اتصل أولا"); return; }
+                    if (host == null) { flag(cmd, true); setStatus("❌ اضغط اتصل أولا"); return; }
                     ip = host;
                 }
                 try {
@@ -899,6 +1177,7 @@ public class SenderActivity extends Activity {
                     h.setRequestProperty("X-Code", c);
                     h.getResponseCode();
                     h.disconnect();
+                    flag(cmd, false);
                 } catch (Exception e) {
                     // مرة وحدة نعاود بلا ما نمسحو IP (الواي فاي ساعات كيتأخر شوية)
                     try {
@@ -908,7 +1187,9 @@ public class SenderActivity extends Activity {
                         h.setRequestProperty("X-Code", c);
                         h.getResponseCode();
                         h.disconnect();
+                        flag(cmd, false);
                     } catch (Exception e2) {
+                        flag(cmd, true);
                         ip = null;
                         setStatus("❌ فقدت الاتصال، اضغط اتصل");
                     }
@@ -996,11 +1277,6 @@ public class SenderActivity extends Activity {
 
     private void startMirror() {
         // عرض الهاتف (يوتيوب...) كيبدا على الأقل بـ Full HD باش الألوان والكتابة تبقى نقية
-        if (mlevel < 2) {
-            mlevel = 2;
-            sp.edit().putInt("mlevel2", mlevel).apply();
-            if (mBtn != null) mBtn.setText(levelText());
-        }
         try {
             MediaProjectionManager m = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
             startActivityForResult(m.createScreenCaptureIntent(), 9);
@@ -1248,6 +1524,7 @@ public class SenderActivity extends Activity {
             @Override public void run() {
                 try {
                     String host = libHost(c);
+                    if (host == null) { setStatus("كنقلب على TV Box..."); host = libHost(c); }
                     if (host == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
                     String me = phoneIp();
                     if (me == null) { setStatus("❌ ما لقيتش عنوان الهاتف فالواي فاي"); return; }
@@ -1257,6 +1534,7 @@ public class SenderActivity extends Activity {
                             + "&u=" + URLEncoder.encode(doc.toString(), "UTF-8");
                     int rc = get(host, c, "/playurl?u=" + URLEncoder.encode(url, "UTF-8"));
                     setStatus(rc == 200 ? "▶ كيتعرض: " + name : "❌ خطأ " + rc + " (واش TV Box عندو آخر نسخة؟)");
+                    if (rc == 200) showVideoBar();
                 } catch (Exception e) {
                     ip = null;
                     setStatus("❌ فشل. تأكد من الواي فاي واضغط اتصل.");

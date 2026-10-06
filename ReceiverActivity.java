@@ -22,6 +22,8 @@ import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
 import android.renderscript.ScriptIntrinsicConvolve3x3;
+import android.renderscript.ScriptIntrinsicResize;
+import android.renderscript.Type;
 import android.media.ToneGenerator;
 import android.graphics.Matrix;
 import android.graphics.pdf.PdfRenderer;
@@ -42,9 +44,9 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.widget.VideoView;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -75,7 +77,9 @@ public class ReceiverActivity extends Activity {
     private WifiManager.WifiLock wlock;
 
     private FrameLayout root;
-    private VideoView video;
+    private VideoTextureView video;
+    private int spd = 10, inv = 0;
+    private TextView hud;
     private FillImageView image;
     private LinearLayout multi;
     private int boostMb = 0, enhSession = -1;
@@ -95,16 +99,14 @@ public class ReceiverActivity extends Activity {
     private String curType;
     private int quality = 2;
     private float zoom = 1f, panX = 0f, panY = 0f;
-    private FillVideoView fillView;
     // مستويات الضبط (1-10) كتتحفظ فـ TV Box وكتتطبق تلقائيا
-    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 1, lvlSha = 7;
+    private int lvlFit = 10, lvlBri = 5, lvlCon = 5, lvlSat = 5, lvlTxt = 0, lvlSha = 0;
     // إضاءة الظلال لعرض الهاتف (الداتا شو كتغمق الألوان): 0 = بلا / 10 = أقوى
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
     private int lvlVdim = 6;
     private View dimView;
     private LinearLayout vpanel;
-    private TextView vpDimVal, vpFitVal;
     private boolean panelOff = false;
     // وضع الامتحان: صورة/ورقة تتعرض بعرض الداتا شو كامل (بلا إطار زجاجي) مع وضوح الكتابة
     private boolean examFull = false, examNext = false, examFresh = false;
@@ -128,16 +130,6 @@ public class ReceiverActivity extends Activity {
     private Rect cropRect, candRect;
     private int candCount, frameNo, cropW, cropH;
 
-    // VideoView كيملا الشاشة كاملة (ماشي غير الحجم الأصلي)
-    private static class FillVideoView extends VideoView {
-        boolean fill = true;
-        FillVideoView(Context c) { super(c); }
-        @Override
-        protected void onMeasure(int w, int h) {
-            if (fill) setMeasuredDimension(getDefaultSize(0, w), getDefaultSize(0, h));
-            else super.onMeasure(w, h);
-        }
-    }
     private final AtomicInteger streamId = new AtomicInteger();
 
     @Override
@@ -147,16 +139,25 @@ public class ReceiverActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         code = sp.getString("paircode", Net.DEFAULT_CODE);
+        // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
+        if (!sp.getBoolean("def0v1", false)) {
+            SharedPreferences.Editor me = sp.edit().putBoolean("def0v1", true);
+            if (sp.getInt("l_txt", 0) == 1) me.putInt("l_txt", 0);
+            if (sp.getInt("l_sha", 0) == 7) me.putInt("l_sha", 0);
+            me.apply();
+        }
         lvlFit = sp.getInt("l_fit", 10);
         lvlBri = sp.getInt("l_bri", 5);
         lvlCon = sp.getInt("l_con", 5);
         lvlSat = sp.getInt("l_sat", 5);
-        lvlTxt = sp.getInt("l_txt", 1);   // غلظة الكتابة: كتبدا بـ 1 وكتتحفظ
+        lvlTxt = sp.getInt("l_txt", 0);   // غلظة الكتابة: 0 افتراضيا وكتتحفظ
         quality = sp.getInt("l_quality", 2);
-        lvlSha = sp.getInt("l_sha", 7);
+        lvlSha = sp.getInt("l_sha", 0);
         lvlGam = sp.getInt("l_gam", 5);
-        if (!sp.getBoolean("vdim6", false)) { sp.edit().remove("l_vdim").putBoolean("vdim6", true).apply(); }
         lvlVdim = sp.getInt("l_vdim", 6);
+        boostMb = sp.getInt("l_boost", 0);
+        spd = sp.getInt("l_spd", 10);
+        inv = sp.getInt("l_inv", 0);
         panelOff = sp.getBoolean("v_paneloff", false);
         glass = sp.getInt("l_glass", 1);
         liveMode = sp.getInt("l_live", 0);
@@ -186,7 +187,9 @@ public class ReceiverActivity extends Activity {
     // إذن ضروري باش التطبيق يتفتح بوحدو مني TV Box كيشعل (Android 10+)
     private void askOverlay() {
         try {
-            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            SharedPreferences sp0 = getSharedPreferences("tvlink", MODE_PRIVATE);
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this) && !sp0.getBoolean("ov_asked", false)) {
+                sp0.edit().putBoolean("ov_asked", true).apply();
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName()));
                 startActivity(i);
@@ -216,6 +219,7 @@ public class ReceiverActivity extends Activity {
 
     @Override
     public boolean onKeyDown(int kc, KeyEvent e) {
+        if (vpanel != null && vpanel.getVisibility() == View.VISIBLE) pKeep();
         if (video != null && video.getVisibility() == View.VISIBLE && vpanel != null
                 && vpanel.getVisibility() != View.VISIBLE
                 && (kc == KeyEvent.KEYCODE_MENU || kc == KeyEvent.KEYCODE_DPAD_CENTER || kc == KeyEvent.KEYCODE_ENTER)) {
@@ -242,9 +246,9 @@ public class ReceiverActivity extends Activity {
         glassBg.addView(glassFrame, new FrameLayout.LayoutParams(-1, -1));
         root.addView(glassBg, new FrameLayout.LayoutParams(-1, -1));
 
-        fillView = new FillVideoView(this);
-        video = fillView;
-        fillView.setZOrderMediaOverlay(true);
+        video = new VideoTextureView(this);
+        video.fill = getSharedPreferences("tvlink", MODE_PRIVATE).getBoolean("l_vfill", false);
+        video.setSpeed(getSharedPreferences("tvlink", MODE_PRIVATE).getInt("l_spd", 10) / 10f);
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
 
@@ -328,9 +332,24 @@ public class ReceiverActivity extends Activity {
         idle.addView(codeView);
         idle.addView(bNew);
         idle.addView(bDef);
+        Button bSet = new Button(this);
+        bSet.setText("\u2699 الإعدادات");
+        bSet.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showSettings(); }
+        });
+        bNewRef = bNew;
+        idle.addView(bSet);
         idle.addView(bMode);
         root.addView(idle, new FrameLayout.LayoutParams(-1, -1));
         buildVideoPanel();
+        buildSettingsPanel();
+        hud = pTv("", 22);
+        hud.setBackground(glassDrawable(0x000000, 0xC8, 0xC8, 0x88FFFFFF, 14));
+        hud.setPadding(dpx(16), dpx(8), dpx(16), dpx(8));
+        FrameLayout.LayoutParams hl = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.LEFT);
+        hl.setMargins(dpx(20), dpx(20), dpx(20), dpx(20));
+        root.addView(hud, hl);
+        hud.setVisibility(View.GONE);
         root.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (video.getVisibility() != View.VISIBLE) return;
@@ -360,7 +379,49 @@ public class ReceiverActivity extends Activity {
         return b;
     }
 
-    private LinearLayout pRow(String label, final String key) {
+    private final Runnable hudHider = new Runnable() {
+        @Override public void run() { if (hud != null) hud.setVisibility(View.GONE); }
+    };
+
+    // رسالة صغيرة فوق الفيديو كتبان 2 تواني وتمشي (بلا ما تغطي الشاشة)
+    private void hud(String t) {
+        if (hud == null || video == null || video.getVisibility() != View.VISIBLE) return;
+        hud.setText(t);
+        hud.setVisibility(View.VISIBLE);
+        root.removeCallbacks(hudHider);
+        root.postDelayed(hudHider, 2000);
+    }
+
+    private static String fmt(int ms) {
+        int sec = Math.max(0, ms / 1000);
+        return (sec / 60) + ":" + (sec % 60 < 10 ? "0" : "") + (sec % 60);
+    }
+
+    private String vstat() {
+        boolean vis = video != null && video.getVisibility() == View.VISIBLE;
+        return (vis ? video.getCurrentPosition() : 0) + "," + (vis ? video.getDuration() : 0) + ","
+                + (vis && video.isPlaying() ? 1 : 0) + "," + spd + "," + (vis ? 1 : 0);
+    }
+
+    private static final int PANEL_MS = 2000;   // لوحة الفيديو كتخبى بعد 2 تواني بلا لمس
+    private final java.util.HashMap<String, TextView> vpVals = new java.util.HashMap<String, TextView>();
+    private final java.util.HashMap<String, TextView> spVals = new java.util.HashMap<String, TextView>();
+    private LinearLayout spanel;
+    private Button sAuto, sGlass, sQual, sLive, sInv;
+
+    private int lvlOf(String k) {
+        if ("fit".equals(k)) return lvlFit;
+        if ("vdim".equals(k)) return lvlVdim;
+        if ("bri".equals(k)) return lvlBri;
+        if ("con".equals(k)) return lvlCon;
+        if ("sat".equals(k)) return lvlSat;
+        if ("txt".equals(k)) return lvlTxt;
+        if ("sha".equals(k)) return lvlSha;
+        if ("gam".equals(k)) return lvlGam;
+        return 0;
+    }
+
+    private LinearLayout pRow(String label, final String key, final boolean settings) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
@@ -371,25 +432,42 @@ public class ReceiverActivity extends Activity {
         TextView val = pTv("", 18);
         val.setGravity(Gravity.CENTER);
         val.setMinWidth(dpx(60));
-        if ("vdim".equals(key)) vpDimVal = val; else vpFitVal = val;
-        m.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { pStep(key, -1); } });
-        p.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { pStep(key, 1); } });
+        (settings ? spVals : vpVals).put(key, val);
+        m.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { pStep(key, -1, settings); } });
+        p.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { pStep(key, 1, settings); } });
         row.addView(m);
         row.addView(val);
         row.addView(p);
         return row;
     }
 
-    private void pStep(String key, int d) {
-        levelCmd(key + ":" + ((("vdim".equals(key)) ? lvlVdim : lvlFit) + d));
+    private void pStep(String key, int d, boolean settings) {
+        levelCmd(key + ":" + (lvlOf(key) + d));
         refreshPanel();
+        refreshSettings();
+        if (!settings) pKeep();
+    }
+
+    private void pKeep() {
+        if (root == null) return;
         root.removeCallbacks(panelHider);
-        root.postDelayed(panelHider, 10000);
+        root.postDelayed(panelHider, PANEL_MS);
     }
 
     private void refreshPanel() {
-        if (vpDimVal != null) vpDimVal.setText(lvlVdim + "/10");
-        if (vpFitVal != null) vpFitVal.setText(lvlFit + "/10");
+        for (java.util.Map.Entry<String, TextView> e : vpVals.entrySet())
+            e.getValue().setText(lvlOf(e.getKey()) + "/10");
+    }
+
+    private void refreshSettings() {
+        for (java.util.Map.Entry<String, TextView> e : spVals.entrySet())
+            e.getValue().setText(lvlOf(e.getKey()) + "/10");
+        SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
+        if (sAuto != null) sAuto.setText("\uD83D\uDE80 تشغيل تلقائي مع TV Box: " + (sp.getBoolean("autostart", true) ? "مفعل ✅" : "ملغى"));
+        if (sGlass != null) sGlass.setText("\uD83E\uDE9F المظهر الزجاجي: " + (glass == 1 ? "مفعل ✅" : "ملغى"));
+        if (sQual != null) sQual.setText("\uD83D\uDD0D جودة الصور: " + (quality == 2 ? "عالية ✅" : "عادية"));
+        if (sInv != null) sInv.setText("\uD83C\uDF11 وضع السبورة (قلب الألوان): " + (inv == 1 ? "مفعل ✅" : "ملغى"));
+        if (sLive != null) sLive.setText("\uD83D\uDDA5 شكل عرض الهاتف: " + (liveMode == 0 ? "ملء" : liveMode == 1 ? "تغطية" : "أصلي"));
     }
 
     private void buildVideoPanel() {
@@ -401,14 +479,34 @@ public class ReceiverActivity extends Activity {
         TextView title = pTv("\uD83C\uDFA5 ضبط الفيديو (كيتحفظ تلقائيا)", 17);
         title.setGravity(Gravity.CENTER);
         vpanel.addView(title);
-        vpanel.addView(pRow("\uD83C\uDF13 تعتيم البياض", "vdim"));
-        vpanel.addView(pRow("\uD83D\uDCD0 الحجم", "fit"));
+
+        // تحكم مباشر فالفيديو: رجوع / إيقاف مؤقت / تقديم / صوت
+        LinearLayout tr = new LinearLayout(this);
+        tr.setOrientation(LinearLayout.HORIZONTAL);
+        Button bk = pBtn("\u23EA"), pp = pBtn("\u23EF"), fw = pBtn("\u23E9"), vd = pBtn("\uD83D\uDD09"), vu = pBtn("\uD83D\uDD0A");
+        View.OnClickListener tl = new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (v.getTag() instanceof String) control((String) v.getTag());
+                pKeep();
+            }
+        };
+        bk.setTag("back"); pp.setTag("pause"); fw.setTag("fwd"); vd.setTag("voldown"); vu.setTag("volup");
+        Button[] tb = {bk, pp, fw, vd, vu};
+        for (Button x : tb) {
+            x.setMinWidth(0);
+            x.setOnClickListener(tl);
+            tr.addView(x, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        vpanel.addView(tr);
+
+        vpanel.addView(pRow("\uD83C\uDF13 تعتيم البياض", "vdim", false));
+        vpanel.addView(pRow("\uD83D\uDCD0 الحجم", "fit", false));
         LinearLayout br = new LinearLayout(this);
         br.setOrientation(LinearLayout.HORIZONTAL);
         Button def = pBtn("\u21BA افتراضي");
         def.setTextSize(15);
         def.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { levelCmd("vdim:6"); levelCmd("fit:10"); refreshPanel(); }
+            @Override public void onClick(View v) { levelCmd("vdim:6"); levelCmd("fit:10"); refreshPanel(); pKeep(); }
         });
         Button ok = pBtn("\u2713 حفظ وإخفاء");
         ok.setTextSize(15);
@@ -424,7 +522,7 @@ public class ReceiverActivity extends Activity {
         br.addView(def, new LinearLayout.LayoutParams(0, -2, 1f));
         br.addView(ok, new LinearLayout.LayoutParams(0, -2, 1f));
         vpanel.addView(br);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dpx(340), -2, Gravity.TOP | Gravity.LEFT);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dpx(360), -2, Gravity.TOP | Gravity.LEFT);
         lp.setMargins(dpx(20), dpx(20), dpx(20), dpx(20));
         root.addView(vpanel, lp);
         vpanel.setVisibility(View.GONE);
@@ -434,8 +532,110 @@ public class ReceiverActivity extends Activity {
         if (vpanel == null) return;
         refreshPanel();
         vpanel.setVisibility(View.VISIBLE);
-        root.removeCallbacks(panelHider);
-        root.postDelayed(panelHider, 10000);
+        pKeep();
+    }
+
+    // ---------------- الإعدادات داخل التطبيق (كلشي كيتحفظ تلقائيا) ----------------
+    private Button sBtn(String text, View.OnClickListener l) {
+        Button b = pBtn(text);
+        b.setTextSize(16);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private void buildSettingsPanel() {
+        spanel = new LinearLayout(this);
+        spanel.setOrientation(LinearLayout.VERTICAL);
+        spanel.setBackground(glassDrawable(0x000000, 0xEE, 0xEE, 0x88FFFFFF, 18));
+        spanel.setPadding(dpx(20), dpx(12), dpx(20), dpx(12));
+        spanel.setClickable(true);
+        TextView title = pTv("\u2699 الإعدادات — كلشي كيتحفظ تلقائيا", 20);
+        title.setGravity(Gravity.CENTER);
+        spanel.addView(title);
+
+        ScrollView sv = new ScrollView(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.addView(pRow("\u270D غلظة الكتابة", "txt", true));
+        body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
+        body.addView(pRow("\uD83D\uDCD0 الحجم", "fit", true));
+        body.addView(pRow("\u2600 السطوع", "bri", true));
+        body.addView(pRow("\u25D0 التباين", "con", true));
+        body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
+        body.addView(pRow("\uD83C\uDF13 إضاءة الوجوه", "gam", true));
+        body.addView(pRow("\uD83C\uDFA5 تعتيم الفيديو", "vdim", true));
+
+        sAuto = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
+                sp.edit().putBoolean("autostart", !sp.getBoolean("autostart", true)).apply();
+                refreshSettings();
+            }
+        });
+        sGlass = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { levelCmd("glass:" + (glass == 1 ? 0 : 1)); refreshSettings(); }
+        });
+        sQual = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { control(quality == 2 ? "ql" : "qh"); refreshSettings(); }
+        });
+        sInv = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { levelCmd("inv:" + (inv == 1 ? 0 : 1)); refreshSettings(); }
+        });
+        sLive = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { control("lmode"); refreshSettings(); }
+        });
+        Button sOver = sBtn("\uD83D\uDCCC إذن الظهور فوق التطبيقات (ضروري للتشغيل التلقائي)", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ReceiverActivity.this)) {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + getPackageName())));
+                    } else {
+                        Toast.makeText(ReceiverActivity.this, "الإذن مفعل ✅", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception ignored) {}
+            }
+        });
+        Button sBat = sBtn("\uD83D\uDD0B منع النظام من إيقاف التطبيق (البطارية)", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                    if (Build.VERSION.SDK_INT >= 23 && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                        startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:" + getPackageName())));
+                    } else {
+                        Toast.makeText(ReceiverActivity.this, "مفعل ✅", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception ignored) {}
+            }
+        });
+        body.addView(sAuto);
+        body.addView(sGlass);
+        body.addView(sQual);
+        body.addView(sLive);
+        body.addView(sInv);
+        body.addView(sOver);
+        body.addView(sBat);
+        sv.addView(body);
+        spanel.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        Button close = sBtn("\u2713 إغلاق", new View.OnClickListener() {
+            @Override public void onClick(View v) { spanel.setVisibility(View.GONE); bNewRef.requestFocus(); }
+        });
+        spanel.addView(close, new LinearLayout.LayoutParams(-1, -2));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1);
+        lp.setMargins(dpx(60), dpx(30), dpx(60), dpx(30));
+        root.addView(spanel, lp);
+        spanel.setVisibility(View.GONE);
+    }
+
+    private Button bNewRef;
+
+    private void showSettings() {
+        if (spanel == null) return;
+        refreshSettings();
+        spanel.setVisibility(View.VISIBLE);
+        if (sAuto != null) sAuto.requestFocus();
     }
 
     // كيتفعل ملي كيبدا الفيديو: ملء الشاشة، بلا إطار، تعتيم البياض، واللوحة كتبان وحدها
@@ -444,7 +644,6 @@ public class ReceiverActivity extends Activity {
         root.setBackgroundColor(Color.BLACK);
         applyLevels();
         goImmersive();
-        if (!panelOff) showPanel();
     }
 
     // طبقة تعتيم فوق كل التطبيقات (يوتيوب...) باستعمال إذن "الظهور فوق التطبيقات"
@@ -603,6 +802,12 @@ public class ReceiverActivity extends Activity {
             String p = u.getPath();
             if ("/ping".equals(p)) {
                 reply(out, 200, "ok");
+            } else if ("/levels".equals(p)) {
+                reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat
+                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim
+                        + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
+            } else if ("/vstat".equals(p)) {
+                reply(out, 200, vstat());
             } else if ("/ctl".equals(p)) {
                 final String cmd = u.getQueryParameter("cmd");
                 runOnUiThread(new Runnable() {
@@ -713,7 +918,7 @@ public class ReceiverActivity extends Activity {
         examFresh = examFull;
         examNext = false;
         if (examFull && glassBg != null) glassBg.setVisibility(View.GONE);
-        if (examFull) { applyExamLevels(); applyLevels(); }
+        if (examFull) applyLevels();
         image.live = false;
         image.setMode(FillImageView.FIT);
         File[] old = f.getParentFile().listFiles();
@@ -874,7 +1079,43 @@ public class ReceiverActivity extends Activity {
             m.postRotate(deg);
             bm = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
         }
-        return thicken(sharpen(fitBitmap(bm)));
+        return thicken(examFull ? upscaleForScreen(bm) : fitBitmap(bm));
+    }
+
+    // وضع الامتحان: كنكبرو الصورة مسبقا بجودة bicubic (بلا ما نصغرو ولا نشوشو) باش الكتابة تبقى نقية
+    private Bitmap upscaleForScreen(Bitmap bm) {
+        if (bm == null) return bm;
+        int rw = root.getWidth(), rh = root.getHeight();
+        if (rw <= 0 || rh <= 0) return bm;
+        int bw = bm.getWidth(), bh = bm.getHeight();
+        float z = Math.max(1f, Math.min(6f, (float) rw * bh / ((float) rh * bw)));
+        float f = 0.60f + 0.40f * (lvlFit - 1) / 9f;
+        float want = Math.min((float) rw / bw, (float) rh / bh) * z * f;
+        float k = Math.min(want, 4096f / Math.max(bw, bh));
+        if (k <= 1.05f) return bm;
+        int nw = Math.round(bw * k), nh = Math.round(bh * k);
+        try {
+            if (rsCache == null) rsCache = RenderScript.create(getApplicationContext());
+            RenderScript rs = rsCache;
+            Allocation in = Allocation.createFromBitmap(rs, bm);
+            Allocation out = Allocation.createTyped(rs, Type.createXY(rs, in.getElement(), nw, nh));
+            ScriptIntrinsicResize rz = ScriptIntrinsicResize.create(rs);
+            rz.setInput(in);
+            rz.forEach_bicubic(out);
+            Bitmap res = Bitmap.createBitmap(nw, nh, Bitmap.Config.ARGB_8888);
+            out.copyTo(res);
+            in.destroy(); out.destroy(); rz.destroy();
+            if (res != bm) bm.recycle();
+            return res;
+        } catch (Throwable t) {
+            try {
+                Bitmap res = Bitmap.createScaledBitmap(bm, nw, nh, true);
+                if (res != bm) bm.recycle();
+                return res;
+            } catch (Throwable t2) {
+                return bm;
+            }
+        }
     }
 
     // غلظة الكتابة: كتوسع الخطوط الداكنة بـ 1 بيكسل (erode) بلا ما تبدل ألوان الصورة
@@ -952,23 +1193,7 @@ public class ReceiverActivity extends Activity {
         return o;
     }
 
-    // إعدادات الامتحان مؤقتة: كتتطبق غير مدة العرض وما كتبدلش الإعدادات المحفوظة
-    private void applyExamLevels() {
-        lvlFit = 10; lvlBri = 5; lvlCon = 6; lvlSat = 5; lvlTxt = 8; lvlSha = 8;
-    }
-
-    private void restoreLevels() {
-        SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
-        lvlFit = sp.getInt("l_fit", 10);
-        lvlBri = sp.getInt("l_bri", 5);
-        lvlCon = sp.getInt("l_con", 5);
-        lvlSat = sp.getInt("l_sat", 5);
-        lvlTxt = sp.getInt("l_txt", 1);
-        lvlSha = sp.getInt("l_sha", 7);
-    }
-
     private void stopMedia() {
-        if (examFull) { restoreLevels(); applyLevels(); }
         examFull = false;
         hideSysDim();
         try { resetZoom(); } catch (Exception ignored) {}
@@ -1029,29 +1254,41 @@ public class ReceiverActivity extends Activity {
     private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 
     private void applyLevels() {
+        if (image != null) image.userSharp = lvlSha * 0.1f;
         fit = 0.60f + 0.40f * (lvlFit - 1) / 9f;
         if (glass == 1 && !examFull) fit = Math.min(fit, 0.95f);   // يبقى هامش صغير باش الإطار الزجاجي يبان
-        boolean neutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5;
-        if (neutral) {
+        boolean baseNeutral = lvlBri == 5 && lvlCon == 5 && lvlSat == 5;
+        ColorMatrix cm = new ColorMatrix();
+        cm.setSaturation(0.5f + 0.1f * lvlSat);
+        float c = lvlCon <= 5 ? 0.5f + 0.1f * lvlCon : 1f + 0.25f * (lvlCon - 5);
+        float t = 128f * (1f - c) + (lvlBri - 5) * 10f;
+        cm.postConcat(new ColorMatrix(new float[]{
+                c, 0, 0, 0, t,
+                0, c, 0, 0, t,
+                0, 0, c, 0, t,
+                0, 0, 0, 1, 0}));
+        // الفيديو: سطوع/تباين/ألوان فقط
+        if (video != null) {
+            if (baseNeutral) video.setLayerType(View.LAYER_TYPE_NONE, null);
+            else { Paint pv = new Paint(); pv.setColorFilter(new ColorMatrixColorFilter(cm)); video.setLayerType(View.LAYER_TYPE_HARDWARE, pv); }
+        }
+        // الصور وPDF: نفس الشيء + وضع السبورة (قلب الألوان: ورقة سوداء وكتابة بيضاء)
+        if (baseNeutral && inv == 0) {
             image.setLayerType(View.LAYER_TYPE_NONE, null);
             multi.setLayerType(View.LAYER_TYPE_NONE, null);
-            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_NONE, null);
         } else {
-            ColorMatrix cm = new ColorMatrix();
-            cm.setSaturation(0.5f + 0.1f * lvlSat);
-            float c = lvlCon <= 5 ? 0.5f + 0.1f * lvlCon : 1f + 0.25f * (lvlCon - 5);
-            float t = 128f * (1f - c) + (lvlBri - 5) * 10f;
-            cm.postConcat(new ColorMatrix(new float[]{
-                    c, 0, 0, 0, t,
-                    0, c, 0, 0, t,
-                    0, 0, c, 0, t,
+            ColorMatrix cm2 = new ColorMatrix(cm);
+            if (inv == 1) cm2.postConcat(new ColorMatrix(new float[]{
+                    -1, 0, 0, 0, 255,
+                    0, -1, 0, 0, 255,
+                    0, 0, -1, 0, 255,
                     0, 0, 0, 1, 0}));
             Paint p = new Paint();
-            p.setColorFilter(new ColorMatrixColorFilter(cm));
+            p.setColorFilter(new ColorMatrixColorFilter(cm2));
             image.setLayerType(View.LAYER_TYPE_HARDWARE, p);
             multi.setLayerType(View.LAYER_TYPE_HARDWARE, p);
-            if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_NONE, null); // عرض الهاتف بألوانه الطبيعية بلا فلتر
         }
+        if (liveView != null) liveView.setLayerType(View.LAYER_TYPE_NONE, null);   // عرض الهاتف بألوانه الطبيعية
         applyZoom();
         applyDim();
     }
@@ -1120,6 +1357,7 @@ public class ReceiverActivity extends Activity {
             lvlTxt = clamp(n, 0, 10);
             ed.putInt("l_txt", lvlTxt);
             ed.apply();
+            refreshSettings();
             if (old != lvlTxt) reload();
             return;
         }
@@ -1127,21 +1365,50 @@ public class ReceiverActivity extends Activity {
             glass = n > 0 ? 1 : 0;
             ed.putInt("l_glass", glass);
             ed.apply();
-            runOnUiThread(new Runnable() { @Override public void run() { applyGlass(); } });
+            runOnUiThread(new Runnable() { @Override public void run() { applyGlass(); refreshSettings(); } });
             return;
         }
-        else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.apply(); return; }
+        else if ("spd".equals(k)) {
+            spd = clamp(n, 5, 20);
+            ed.putInt("l_spd", spd);
+            ed.apply();
+            video.setSpeed(spd / 10f);
+            hud("⏩ السرعة " + (spd / 10f) + "x");
+            return;
+        }
+        else if ("seek".equals(k)) {
+            video.seekTo(n);
+            hud("⏩ " + fmt(n) + " / " + fmt(video.getDuration()));
+            return;
+        }
+        else if ("inv".equals(k)) {
+            inv = n > 0 ? 1 : 0;
+            ed.putInt("l_inv", inv);
+            ed.apply();
+            applyLevels();
+            refreshSettings();
+            return;
+        }
+        else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.apply(); refreshSettings(); return; }
         else if ("sha".equals(k)) {
             int old = lvlSha;
             lvlSha = clamp(n, 0, 10);
+            if (image != null) image.userSharp = lvlSha * 0.1f;
             ed.putInt("l_sha", lvlSha);
             ed.apply();
+            refreshSettings();
             if (old != lvlSha && "image".equals(curType)) reload();
             return;
         }
         else return;
         ed.apply();
         applyLevels();
+        refreshPanel();
+        refreshSettings();
+        // تغيير من الهاتف أثناء الفيديو: رسالة صغيرة كتبان 2 تواني
+        String lab = "bri".equals(k) ? "☀ السطوع" : "con".equals(k) ? "◐ التباين" : "sat".equals(k) ? "🎨 الألوان"
+                : "vdim".equals(k) ? "🎥 التعتيم" : "📐 الحجم";
+        hud(lab + ": " + lvlOf(k) + "/10");
     }
 
     private void applyLiveMode() {
@@ -1277,7 +1544,8 @@ public class ReceiverActivity extends Activity {
                 reload();
                 break;
             case "vfill":
-                if (fillView != null) { fillView.fill = !fillView.fill; fillView.requestLayout(); }
+                video.setFill(!video.fill);
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).apply();
                 break;
             case "zin":
                 zoom = Math.min(6f, zoom * 1.25f); applyZoom();
@@ -1322,6 +1590,7 @@ public class ReceiverActivity extends Activity {
             case "volmax":
                 setMaxVolume();
                 boostMb = 800;
+                saveBoost();
                 applyBoost();
                 volToast();
                 break;
@@ -1451,8 +1720,13 @@ public class ReceiverActivity extends Activity {
                 }
             }
         } catch (Exception ignored) {}
+        saveBoost();
         applyBoost();
         volToast();
+    }
+
+    private void saveBoost() {
+        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_boost", boostMb).apply();
     }
 
     // تضخيم إضافي للصوت (للفيديو) فوق أقصى صوت النظام
@@ -1675,6 +1949,7 @@ public class ReceiverActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (spanel != null && spanel.getVisibility() == View.VISIBLE) { spanel.setVisibility(View.GONE); return; }
         if (showing) { killStream(); stopMedia(); } else super.onBackPressed();
     }
 

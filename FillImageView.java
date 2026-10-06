@@ -26,6 +26,9 @@ public class FillImageView extends ImageView {
     /** true while showing a live mirror stream */
     public volatile boolean live;
 
+    /** حدة الصور/الأوراق (0 = بلا حدة، 1 = قوية). القيمة السالبة = السلوك القديم. كتتحكم فيها ReceiverActivity من إعداد "حدة الصورة". */
+    public volatile float userSharp = -1f;
+
     private boolean enhance = true;
     private int mode = AUTO, resolved = FIT;
     private int gen, taskSeq;
@@ -141,6 +144,7 @@ public class FillImageView extends ImageView {
     private void prepare(long delayMs) {
         if (pendingTask != null) removeCallbacks(pendingTask);
         final Bitmap s = src;
+        final float us = live ? -1f : userSharp;
         if (s == null || getWidth() == 0 || !enhance) return;
         float z = Math.max(1f, getScaleX());
         lastZ = z;
@@ -159,7 +163,7 @@ public class FillImageView extends ImageView {
                     @Override public void run() {
                         if (g != gen || t != taskSeq) return;
                         final Bitmap out;
-                        try { out = process(s, ftw, fth); }
+                        try { out = process(s, ftw, fth, us); }
                         catch (Throwable e) { return; }
                         post(new Runnable() {
                             @Override public void run() {
@@ -177,9 +181,11 @@ public class FillImageView extends ImageView {
         if (delayMs > 0) postDelayed(pendingTask, delayMs); else pendingTask.run();
     }
 
-    private static Bitmap process(Bitmap s, int tw, int th) {
+    private static Bitmap process(Bitmap s, int tw, int th, float us) {
         Bitmap sc = scaleHQ(s, tw, th);
-        Bitmap out = sharpen(sc, tw > s.getWidth() ? 1.0f : 0.7f);
+        if (us >= 0f && us < 0.01f) return sc;   // حدة 0: الصورة بلا أي تعديل
+        float amt = us >= 0f ? us : (tw > s.getWidth() ? 1.0f : 0.7f);
+        Bitmap out = sharpen(sc, amt);
         if (sc != s && sc != out) sc.recycle();
         return out;
     }
