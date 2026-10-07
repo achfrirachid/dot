@@ -335,16 +335,13 @@ public class ReceiverActivity extends Activity {
         });
         idle.addView(info);
         idle.addView(codeView);
-        idle.addView(bNew);
-        idle.addView(bDef);
         Button bSet = new Button(this);
         bSet.setText("\u2699 الإعدادات");
         bSet.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showSettings(); }
         });
-        bNewRef = bNew;
+        bNewRef = bSet;
         idle.addView(bSet);
-        idle.addView(bMode);
         root.addView(idle, new FrameLayout.LayoutParams(-1, -1));
         buildVideoPanel();
         buildSettingsPanel();
@@ -363,7 +360,7 @@ public class ReceiverActivity extends Activity {
             }
         });
         setContentView(root);
-        bNew.requestFocus();
+        bSet.requestFocus();
     }
 
     // ---------------- لوحة ضبط الفيديو (كتبان وحدها فوق الفيديو) ----------------
@@ -408,7 +405,7 @@ public class ReceiverActivity extends Activity {
                 + (vis && video.isPlaying() ? 1 : 0) + "," + spd + "," + (vis ? 1 : 0);
     }
 
-    private static final int PANEL_MS = 2000;   // لوحة الفيديو كتخبى بعد 2 تواني بلا لمس
+    private static final int PANEL_MS = 5000;   // لوحة ألوان الفيديو كتخبى بعد 5 تواني بلا لمس
     private final java.util.HashMap<String, TextView> vpVals = new java.util.HashMap<String, TextView>();
     private final java.util.HashMap<String, TextView> spVals = new java.util.HashMap<String, TextView>();
     private LinearLayout spanel;
@@ -613,6 +610,27 @@ public class ReceiverActivity extends Activity {
         sLive = sBtn("", new View.OnClickListener() {
             @Override public void onClick(View v) { control("lmode"); refreshSettings(); }
         });
+        Button sNewCode = sBtn("🔑 كود عشوائي جديد", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                code = newCode();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                refreshInfo();
+            }
+        });
+        Button sDefCode = sBtn("🔑 الكود الثابت " + Net.DEFAULT_CODE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                code = Net.DEFAULT_CODE;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                refreshInfo();
+            }
+        });
+        Button sModeBtn = sBtn("🔁 تغيير الوضع", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").apply();
+                startActivity(new Intent(ReceiverActivity.this, MainActivity.class).putExtra("choose", true));
+                finish();
+            }
+        });
         Button sOver = sBtn("\uD83D\uDCCC إذن الظهور فوق التطبيقات (ضروري للتشغيل التلقائي)", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 try {
@@ -639,6 +657,9 @@ public class ReceiverActivity extends Activity {
             }
         });
         body.addView(sAuto);
+        body.addView(sNewCode);
+        body.addView(sDefCode);
+        body.addView(sModeBtn);
         body.addView(sGlass);
         body.addView(sQual);
         body.addView(sLive);
@@ -710,7 +731,8 @@ public class ReceiverActivity extends Activity {
     private void applyDim() {
         if (sysDim != null) { if (lvlVdim <= 0) hideSysDim(); else sysDim.setAlpha(Math.min(0.8f, 0.08f * lvlVdim)); }
         if (dimView == null) return;
-        boolean on = idle != null && idle.getVisibility() != View.VISIBLE && lvlVdim > 0;
+        boolean vid = (video != null && video.getVisibility() == View.VISIBLE) || (liveView != null && liveView.getVisibility() == View.VISIBLE);
+        boolean on = vid && idle != null && idle.getVisibility() != View.VISIBLE && lvlVdim > 0;   // التعتيم للفيديو وعرض الهاتف فقط، الامتحانات والصور كما هي
         dimView.setAlpha(0.08f * lvlVdim);
         dimView.setVisibility(on ? View.VISIBLE : View.GONE);
     }
@@ -1056,8 +1078,9 @@ public class ReceiverActivity extends Activity {
         if (rw <= 0 || rh <= 0) return;
         examFresh = false;
         float s = Math.max(1f, Math.min(6f, (float) rw * bh / ((float) rh * bw)));
+        // الورقة كتملا العرض كامل، مع إزاحة صغيرة لليمين باش الكتابة اللي فالجهة اليسرى ما تتقطعش
+        if (s > 1.12f) { s *= 0.92f; panX = rw * 0.035f; } else panX = 0f;   // هامش أمان: الورقة كاملة تبان (حتى آخر الكتابة فاليسار)
         zoom = s;
-        panX = 0f;
         panY = (zoom * fit - 1f) * rh / 2f;
         applyZoom();
         if (pdf == null) image.refreshQuality();
@@ -1603,20 +1626,25 @@ public class ReceiverActivity extends Activity {
                 break;
             case "zreset":
                 resetZoom();
+                if (examFull) {   // وضع الامتحان: الرجوع للوضع الأصلي كيرجع الورقة تملا العرض (بلا ما تتقطع الكتابة)
+                    examFresh = true;
+                    if (pdf != null) renderPage();
+                    else if (image.getDrawable() != null) examFill(image.getDrawable().getIntrinsicWidth(), image.getDrawable().getIntrinsicHeight());
+                }
                 break;
             case "pl":
-                panX += root.getWidth() * 0.15f; applyZoom();
+                panX += root.getWidth() * 0.06f; applyZoom();
                 break;
             case "pr":
-                panX -= root.getWidth() * 0.15f; applyZoom();
+                panX -= root.getWidth() * 0.06f; applyZoom();
                 break;
             case "pu":
-                if (multiShown()) { scrollMulti(-root.getHeight() * 0.25f); break; }
-                if (!image.scrollContent(-root.getHeight() * 0.25f)) { panY += root.getHeight() * 0.15f; applyZoom(); }
+                if (multiShown()) { scrollMulti(-root.getHeight() * 0.12f); break; }
+                if (!image.scrollContent(-root.getHeight() * 0.12f)) { panY += root.getHeight() * 0.08f; applyZoom(); }
                 break;
             case "pd":
-                if (multiShown()) { scrollMulti(root.getHeight() * 0.25f); break; }
-                if (!image.scrollContent(root.getHeight() * 0.25f)) { panY -= root.getHeight() * 0.15f; applyZoom(); }
+                if (multiShown()) { scrollMulti(root.getHeight() * 0.12f); break; }
+                if (!image.scrollContent(root.getHeight() * 0.12f)) { panY -= root.getHeight() * 0.08f; applyZoom(); }
                 break;
             case "imode":
                 if (multiShown()) {
@@ -1885,7 +1913,7 @@ public class ReceiverActivity extends Activity {
                 stopMedia();
                 curType = "stream";
                 idle.setVisibility(View.GONE); applyDim();
-                liveView.setVisibility(View.VISIBLE);
+                liveView.setVisibility(View.VISIBLE); applyDim();
                 showing = true;
             }
         });
