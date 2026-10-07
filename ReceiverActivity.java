@@ -37,6 +37,7 @@ import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import android.view.Choreographer;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -86,6 +87,7 @@ public class ReceiverActivity extends Activity {
     private int boostMb = 0, enhSession = -1;
     private LoudnessEnhancer enh;
     private File[] multiFiles;
+    private int rotQ = 0;   // تدوير المحتوى على الداتا شو (0..3 × 90°)
     private String[] multiTypes;
     private int multiTotal, multiGot;
     private LinearLayout idle;
@@ -266,6 +268,7 @@ public class ReceiverActivity extends Activity {
 
         video = new VideoTextureView(this);
         video.fill = getSharedPreferences("tvlink", MODE_PRIVATE).getBoolean("l_vfill", false);
+        rotQ = getSharedPreferences("tvlink", MODE_PRIVATE).getInt("l_rot", 0) & 3;
         video.setSpeed(getSharedPreferences("tvlink", MODE_PRIVATE).getInt("l_spd", 10) / 10f);
         root.addView(video, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
         video.setVisibility(View.GONE);
@@ -1162,6 +1165,7 @@ public class ReceiverActivity extends Activity {
         if (!examFull || !examFresh || bw <= 0 || bh <= 0) return;
         int rw = root.getWidth(), rh = root.getHeight();
         if (rw <= 0 || rh <= 0) return;
+        if ((rotQ & 1) == 1) { int t = rw; rw = rh; rh = t; }
         examFresh = false;
         float dw = Math.min((float) rw, (float) rh * bw / bh);   // عرض الورقة وهي كاملة فالشاشة
         float m = 0.03f * lvlMar;                                // هامش الأمان (من 0 إلى 30% من العرض)
@@ -1171,8 +1175,10 @@ public class ReceiverActivity extends Activity {
         float s = Math.max(1f, Math.min(6f, rw * (1f - m) / (fw * dw)));
         zoom = s;
         float eff = s * fit;
-        panX = eff > 1f ? -((fl + fr) / 2f - 0.5f) * dw * eff : 0f;
-        panY = (zoom * fit - 1f) * rh / 2f;
+        float px = eff > 1f ? -((fl + fr) / 2f - 0.5f) * dw * eff : 0f;
+        float py = (zoom * fit - 1f) * rh / 2f;
+        panX = px * COS[rotQ] - py * SIN[rotQ];
+        panY = px * SIN[rotQ] + py * COS[rotQ];
         applyZoom();
         if (pdf == null) image.refreshQuality();
     }
@@ -1372,12 +1378,18 @@ public class ReceiverActivity extends Activity {
 
     private void applyZoom() {
         if (zoom < 0.5f) zoom = 0.5f;
-        if (zoom <= 1f) { panY = 0f; }
         float eff = zoom * fit;
-        float mx = Math.max((eff - 1f) * root.getWidth() / 2f, root.getWidth() * 0.45f);   // الورقة كتزحف يمين/يسار حتى فوضع 1x
-        float my = Math.max(0f, (eff - 1f) * root.getHeight() / 2f);
-        panX = Math.max(-mx, Math.min(mx, panX));
-        panY = Math.max(-my, Math.min(my, panY));
+        float lw = localW(), lh = localH();
+        int c = COS[rotQ], sn = SIN[rotQ];
+        float lx = panX * c + panY * sn;          // الإزاحة فاتجاه الورقة (قبل التدوير)
+        float ly = -panX * sn + panY * c;
+        if (zoom <= 1f) ly = 0f;
+        float mx = Math.max((eff - 1f) * lw / 2f, lw * 0.45f);   // الورقة كتزحف يمين/يسار حتى فوضع 1x
+        float my = Math.max(0f, (eff - 1f) * lh / 2f);
+        lx = Math.max(-mx, Math.min(mx, lx));
+        ly = Math.max(-my, Math.min(my, ly));
+        panX = lx * c - ly * sn;
+        panY = lx * sn + ly * c;
         image.setScaleX(eff);
         image.setScaleY(eff);
         image.setTranslationX(panX);
@@ -1395,6 +1407,76 @@ public class ReceiverActivity extends Activity {
             multi.setScaleY(eff);
             multi.setTranslationX(panX);
             multi.setTranslationY(panY);
+        }
+        applyRot();
+    }
+
+    private static final int[] COS = {1, 0, -1, 0};
+    private static final int[] SIN = {0, 1, 0, -1};
+    private float localW() { return (rotQ & 1) == 1 ? root.getHeight() : root.getWidth(); }
+    private float localH() { return (rotQ & 1) == 1 ? root.getWidth() : root.getHeight(); }
+    // تحريك ناعم (انزلاق) بدل القفز: كل ضغطة كتزيد 0.1 من العرض/الارتفاع، والورقة كتمشي ليها بسرعة ثابتة بلا قفزات
+    private static final float GLIDE_S = 0.16f;   // الوقت اللي كياخد قطع 0.1 (بالثانية)
+    private float remX, remV;
+    private boolean gliding;
+    private long lastFrame;
+    private final Choreographer.FrameCallback glideCb = new Choreographer.FrameCallback() {
+        @Override public void doFrame(long t) {
+            float dt = lastFrame == 0 ? 0.016f : Math.min(0.05f, (t - lastFrame) / 1e9f);
+            lastFrame = t;
+            float sx = localW() * 0.1f / GLIDE_S, sv = localH() * 0.1f / GLIDE_S;
+            float mx = Math.signum(remX) * Math.min(Math.abs(remX), sx * dt);
+            float mv = Math.signum(remV) * Math.min(Math.abs(remV), sv * dt);
+            remX -= mx;
+            remV -= mv;
+            if (mx != 0f) panBy(mx, 0f);
+            if (mv != 0f) {
+                if (multiShown()) scrollMulti(mv);
+                else if (!image.scrollContent(mv)) panBy(0f, -mv);
+            }
+            if (Math.abs(remX) < 0.5f && Math.abs(remV) < 0.5f) {
+                gliding = false; lastFrame = 0; remX = 0f; remV = 0f;
+                return;
+            }
+            Choreographer.getInstance().postFrameCallback(this);
+        }
+    };
+
+    private void glide(float dx, float dv) {
+        remX = Math.max(-localW() * 0.3f, Math.min(localW() * 0.3f, remX + dx));
+        remV = Math.max(-localH() * 0.3f, Math.min(localH() * 0.3f, remV + dv));
+        if (!gliding) {
+            gliding = true;
+            lastFrame = 0;
+            Choreographer.getInstance().postFrameCallback(glideCb);
+        }
+    }
+
+    // تحريك بدقة فاتجاه الورقة (يمين/يسار/فوق/تحت) مهما كان التدوير
+    private void panBy(float dx, float dy) {
+        int c = COS[rotQ], sn = SIN[rotQ];
+        panX += dx * c - dy * sn;
+        panY += dx * sn + dy * c;
+        applyZoom();
+    }
+
+    // تدوير الصورة/PDF/الفرضين/الفيديو على الداتا شو فقط: العرض والارتفاع كيتبدلو باش الورقة تملا الشاشة بعد التدوير
+    private void applyRot() {
+        int rw = root.getWidth(), rh = root.getHeight();
+        if (rw <= 0 || rh <= 0) return;
+        boolean odd = (rotQ & 1) == 1;
+        View[] vs = {image, multi, video};
+        for (View v : vs) {
+            if (v == null) continue;
+            try {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) v.getLayoutParams();
+                int w = odd ? rh : -1, h = odd ? rw : -1;
+                if (lp.width != w || lp.height != h) {
+                    lp.width = w; lp.height = h; lp.gravity = Gravity.CENTER;
+                    v.setLayoutParams(lp);
+                }
+                v.setRotation(rotQ * 90f);
+            } catch (Exception ignored) {}
         }
     }
 
@@ -1760,6 +1842,16 @@ public class ReceiverActivity extends Activity {
                 zoom = Math.max(0.5f, Math.round((zoom - 0.5f) * 2f) / 2f); applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
+            case "rot":
+                rotQ = (rotQ + 1) & 3;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_rot", rotQ).commit();
+                resetZoom();
+                if (examFull) {
+                    examFresh = true;
+                    if (pdf != null) renderPage();
+                    else if (image.getDrawable() != null) examFill(image.getDrawable().getIntrinsicWidth(), image.getDrawable().getIntrinsicHeight());
+                }
+                break;
             case "zreset":
                 resetZoom();
                 if (examFull) {   // وضع الامتحان: الرجوع للوضع الأصلي كيرجع الورقة تملا العرض (بلا ما تتقطع الكتابة)
@@ -1769,18 +1861,16 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "pl":
-                panX += root.getWidth() * 0.2f; applyZoom();
+                glide(localW() * 0.1f, 0f);
                 break;
             case "pr":
-                panX -= root.getWidth() * 0.2f; applyZoom();
+                glide(-localW() * 0.1f, 0f);
                 break;
             case "pu":
-                if (multiShown()) { scrollMulti(-root.getHeight() * 0.30f); break; }
-                if (!image.scrollContent(-root.getHeight() * 0.30f)) { panY += root.getHeight() * 0.25f; applyZoom(); }
+                glide(0f, -localH() * 0.1f);
                 break;
             case "pd":
-                if (multiShown()) { scrollMulti(root.getHeight() * 0.30f); break; }
-                if (!image.scrollContent(root.getHeight() * 0.30f)) { panY -= root.getHeight() * 0.25f; applyZoom(); }
+                glide(0f, localH() * 0.1f);
                 break;
             case "imode":
                 if (multiShown()) {

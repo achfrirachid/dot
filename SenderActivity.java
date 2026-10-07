@@ -520,15 +520,15 @@ public class SenderActivity extends Activity {
         LinearLayout center = glassCard("🎮 تحكم", 0xB3FFFDF8, 0xCCE7D7BE);
         LinearLayout d1 = box(false);
         d1.addView(hw(new View(this), 1f));
-        d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 300), 1f));
+        d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 150), 1f));
         d1.addView(hw(new View(this), 1f));
         LinearLayout d2 = box(false);
-        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 300), 1f));
+        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 150), 1f));
         d2.addView(hw(gbtn("🎯", C_PINK, ctl("zreset")), 1f));
-        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 300), 1f));
+        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 150), 1f));
         LinearLayout d3 = box(false);
         d3.addView(hw(new View(this), 1f));
-        d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 300), 1f));
+        d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 150), 1f));
         d3.addView(hw(new View(this), 1f));
         LinearLayout[] ds = {d1, d2, d3};
         for (LinearLayout rr : ds) {
@@ -577,6 +577,7 @@ public class SenderActivity extends Activity {
         ex.addView(hw(gbtn("🖼\nصورة", C_PINK, ctl("imode")), 1f));
         ex.addView(hw(qBtn, 1f));
         center.addView(fx(ex, 54));
+        center.addView(fx(gbtn("🔄  تدوير الصورة فالداتا شو (الهاتف ما كيتحركش)", C_CYAN, ctl("rot")), 50));
 
         // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====
         LinearLayout vset = glassCard("🎥 ضبط الفيديو (اضغط الرقم واكتبه)", 0xB3FFF3C4, 0xCCF59E0B);
@@ -1403,7 +1404,7 @@ public class SenderActivity extends Activity {
     }
 
     private String rotText() {
-        return "🔄 تدوير الشاشة\n" + (autoRot ? "تلقائي ✅" : "ملغى");
+        return "📱 تدوير الهاتف\n" + (autoRot ? "تلقائي ✅" : "ملغى");
     }
 
     // كيفعل auto-rotate فالهاتف بوحدو، وكيرجعو لحالتو الأصلية إلا تلغات الخاصية
