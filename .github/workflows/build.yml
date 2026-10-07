@@ -18,10 +18,9 @@ jobs:
       - name: Generate app icon (light blue)
         run: |
           pip install pillow
-          M=./AndroidManifest.xml
-          [ -f "$M" ] || M=$(find . -name AndroidManifest.xml -not -path "*/build/*" | head -1)
-          RES="$(dirname "$M")/res"
-          echo "manifest: $M  res: $RES"
+          RES="src/main/res"
+          mkdir -p "$RES"
+          echo "build.gradle:"; ls *.gradle* 2>/dev/null; grep -n "res\|srcDir\|manifest" build.gradle 2>/dev/null | head -20
           cat > /tmp/gen_icons.py <<'PYEOF'
           import os, sys
           from PIL import Image, ImageDraw
