@@ -17,6 +17,8 @@ public class BootReceiver extends BroadcastReceiver {
         boolean tv = c.getPackageManager().hasSystemFeature("android.software.leanback")
                 || c.getSharedPreferences("tvlink", Context.MODE_PRIVATE).getBoolean("is_tv", false);
         if (!tv) return;
+        // احترام خيار "تشغيل تلقائي مع TV Box" من الإعدادات (مفعل افتراضيا)
+        if (!c.getSharedPreferences("tvlink", Context.MODE_PRIVATE).getBoolean("autostart", true)) return;
         Intent i = new Intent(c, ReceiverActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         try {
@@ -27,9 +29,12 @@ public class BootReceiver extends BroadcastReceiver {
         // محاولة ثانية بعد 15 ثانية (بعض الأجهزة كتبقى ما واجداش فالبداية)
         final Context app = c.getApplicationContext();
         final Intent again = i;
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+        android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable retry = new Runnable() {
             @Override public void run() { try { app.startActivity(again); } catch (Exception ignored) {} }
-        }, 15000);
+        };
+        h.postDelayed(retry, 15000);
+        h.postDelayed(retry, 45000);   // بعض الأجهزة كتبقى بطيئة فالإقلاع
     }
 
     private void fallback(Context c, Intent i) {

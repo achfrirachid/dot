@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
@@ -137,7 +138,9 @@ public class ReceiverActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setFormat(PixelFormat.RGBA_8888);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         sp.edit().putBoolean("is_tv", true).apply();   // باش BootReceiver يعرف هذا هو TV Box
         code = sp.getString("paircode", Net.DEFAULT_CODE);
@@ -297,13 +300,15 @@ public class ReceiverActivity extends Activity {
         idle.setGravity(Gravity.CENTER);
 
         info = new TextView(this);
-        info.setTextColor(Color.WHITE);
-        info.setTextSize(28);
+        info.setTextColor(SOFT_TXT);
+        info.setTypeface(Typeface.DEFAULT_BOLD);
+        info.setTextSize(30);
         info.setGravity(Gravity.CENTER);
 
         codeView = new TextView(this);
-        codeView.setTextColor(Color.parseColor("#4FC3F7"));
-        codeView.setTextSize(64);
+        codeView.setTextColor(SOFT_CODE);
+        codeView.setTypeface(Typeface.DEFAULT_BOLD);
+        codeView.setTextSize(72);
         codeView.setGravity(Gravity.CENTER);
 
         Button bNew = new Button(this);
@@ -340,8 +345,10 @@ public class ReceiverActivity extends Activity {
         bSet.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { showSettings(); }
         });
+        darkBtn(bSet);
         bNewRef = bSet;
         idle.addView(bSet);
+        idle.setBackgroundColor(Color.BLACK);
         root.addView(idle, new FrameLayout.LayoutParams(-1, -1));
         buildVideoPanel();
         buildSettingsPanel();
@@ -569,46 +576,22 @@ public class ReceiverActivity extends Activity {
     private void buildSettingsPanel() {
         spanel = new LinearLayout(this);
         spanel.setOrientation(LinearLayout.VERTICAL);
-        spanel.setBackground(glassDrawable(0x000000, 0xEE, 0xEE, 0x88FFFFFF, 18));
+        spanel.setBackgroundColor(Color.BLACK);
         spanel.setPadding(dpx(20), dpx(12), dpx(20), dpx(12));
         spanel.setClickable(true);
-        TextView title = pTv("\u2699 الإعدادات — كلشي كيتحفظ تلقائيا", 20);
+        TextView title = pTv("\u2699 الإعدادات", 20);
         title.setGravity(Gravity.CENTER);
         spanel.addView(title);
 
         ScrollView sv = new ScrollView(this);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.addView(pRow("\u270D غلظة الكتابة", "txt", true));
-        body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
-        body.addView(pRow("\uD83D\uDCD0 الحجم", "fit", true));
-        body.addView(pRow("\u2600 السطوع", "bri", true));
-        body.addView(pRow("\u25D0 التباين", "con", true));
-        body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
-        body.addView(pRow("\uD83C\uDF13 إضاءة الوجوه", "gam", true));
-        body.addView(pRow("\uD83C\uDFA5 تعتيم الفيديو", "vdim", true));
-        body.addView(pRow("\u2600 سطوع الفيديو", "vbri", true));
-        body.addView(pRow("\u25D0 تباين الفيديو", "vcon", true));
-        body.addView(pRow("\uD83C\uDFA8 ألوان الفيديو", "vsat", true));
-
         sAuto = sBtn("", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
                 sp.edit().putBoolean("autostart", !sp.getBoolean("autostart", true)).apply();
                 refreshSettings();
             }
-        });
-        sGlass = sBtn("", new View.OnClickListener() {
-            @Override public void onClick(View v) { levelCmd("glass:" + (glass == 1 ? 0 : 1)); refreshSettings(); }
-        });
-        sQual = sBtn("", new View.OnClickListener() {
-            @Override public void onClick(View v) { control(quality == 2 ? "ql" : "qh"); refreshSettings(); }
-        });
-        sInv = sBtn("", new View.OnClickListener() {
-            @Override public void onClick(View v) { levelCmd("inv:" + (inv == 1 ? 0 : 1)); refreshSettings(); }
-        });
-        sLive = sBtn("", new View.OnClickListener() {
-            @Override public void onClick(View v) { control("lmode"); refreshSettings(); }
         });
         Button sNewCode = sBtn("🔑 كود عشوائي جديد", new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -631,47 +614,18 @@ public class ReceiverActivity extends Activity {
                 finish();
             }
         });
-        Button sOver = sBtn("\uD83D\uDCCC إذن الظهور فوق التطبيقات (ضروري للتشغيل التلقائي)", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                try {
-                    if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(ReceiverActivity.this)) {
-                        startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:" + getPackageName())));
-                    } else {
-                        Toast.makeText(ReceiverActivity.this, "الإذن مفعل ✅", Toast.LENGTH_SHORT).show();
-                    }
-                } catch (Exception ignored) {}
-            }
-        });
-        Button sBat = sBtn("\uD83D\uDD0B منع النظام من إيقاف التطبيق (البطارية)", new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                try {
-                    android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-                    if (Build.VERSION.SDK_INT >= 23 && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                        startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:" + getPackageName())));
-                    } else {
-                        Toast.makeText(ReceiverActivity.this, "مفعل ✅", Toast.LENGTH_SHORT).show();
-                    }
-                } catch (Exception ignored) {}
-            }
-        });
         body.addView(sAuto);
         body.addView(sNewCode);
         body.addView(sDefCode);
         body.addView(sModeBtn);
-        body.addView(sGlass);
-        body.addView(sQual);
-        body.addView(sLive);
-        body.addView(sInv);
-        body.addView(sOver);
-        body.addView(sBat);
+        darkBtn(sAuto); darkBtn(sNewCode); darkBtn(sDefCode); darkBtn(sModeBtn);
         sv.addView(body);
         spanel.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         Button close = sBtn("\u2713 إغلاق", new View.OnClickListener() {
             @Override public void onClick(View v) { spanel.setVisibility(View.GONE); bNewRef.requestFocus(); }
         });
+        darkBtn(close);
         spanel.addView(close, new LinearLayout.LayoutParams(-1, -2));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1);
         lp.setMargins(dpx(60), dpx(30), dpx(60), dpx(30));
@@ -680,6 +634,20 @@ public class ReceiverActivity extends Activity {
     }
 
     private Button bNewRef;
+
+    // ألوان مريحة للعين (بلا أبيض ساطع) — الخلفية سوداء = الداتا شو ما كيرسل فيها ضوء
+    private static final int SOFT_TXT = 0xFFFFE9A8;
+    private static final int SOFT_CODE = 0xFFFFD54F;
+
+    private void darkBtn(Button b) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0xFF1A1A1A);
+        g.setCornerRadius(dpx(12));
+        g.setStroke(dpx(2), SOFT_CODE);
+        b.setBackground(g);
+        b.setTextColor(SOFT_TXT);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+    }
 
     private void showSettings() {
         if (spanel == null) return;
@@ -747,8 +715,9 @@ public class ReceiverActivity extends Activity {
     private TextView hintView() {
         if (hint == null) {
             hint = new TextView(this);
-            hint.setTextColor(glass == 1 ? Color.WHITE : Color.LTGRAY);
-            hint.setTextSize(22);
+            hint.setTextColor(SOFT_TXT);
+            hint.setTypeface(Typeface.DEFAULT_BOLD);
+            hint.setTextSize(24);
             hint.setGravity(Gravity.CENTER);
             idle.addView(hint, 2);
         }
@@ -1396,12 +1365,10 @@ public class ReceiverActivity extends Activity {
         if (multi != null) multi.setBackgroundColor(on ? Color.TRANSPARENT : Color.parseColor("#444444"));
         if (idle != null) {
             FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1);
-            int m = on ? dpx(36) : 0;
-            lp.setMargins(m, m, m, m);
             idle.setLayoutParams(lp);
-            idle.setBackground(on ? glassDrawable(0xFFFFFF, 0x40, 0x18, 0x88FFFFFF, 28) : null);
+            idle.setBackgroundColor(Color.BLACK);   // الشاشة الرئيسية دايما سوداء
         }
-        if (hint != null) hint.setTextColor(on ? Color.WHITE : Color.LTGRAY);
+        if (hint != null) hint.setTextColor(SOFT_TXT);
         applyLevels();
     }
 
@@ -1570,6 +1537,24 @@ public class ReceiverActivity extends Activity {
 
     private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); image.refreshQuality(); }
 
+    // كيتطلب من الهاتف: أول ضغطة = إذن الظهور فوق التطبيقات، التانية = البطارية، وبعدها كلشي مفعل
+    private void askNextPermission() {
+        try {
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())));
+                return;
+            }
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (Build.VERSION.SDK_INT >= 23 && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:" + getPackageName())));
+                return;
+            }
+            Toast.makeText(this, "الأذونات كلها مفعلة ✅", Toast.LENGTH_LONG).show();
+        } catch (Exception ignored) {}
+    }
+
     private void control(String cmd) {
         if (cmd == null) return;
         if (cmd.indexOf(':') > 0) { levelCmd(cmd); return; }
@@ -1579,6 +1564,9 @@ public class ReceiverActivity extends Activity {
                 break;
             case "beep":
                 beep();
+                break;
+            case "perm":
+                runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });
                 break;
             case "lmode":
                 liveMode = (liveMode + 1) % 3;
