@@ -506,6 +506,15 @@ public class SenderActivity extends Activity {
                 gbtn("🎬\nفيديو", C_ORANGE, pickL("video/*", 1)),
                 gbtn("🖼\nصورة", C_PINK, pickL("image/*", 2)),
                 gbtn("📄\nPDF", C_PURPLE, pickL("application/pdf", 3))), 62));
+        send.addView(fx(gbtn("🖼🖼  فرضين على الداتا شو (اختار صورتين)", C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("image/*");
+                i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                startActivityForResult(Intent.createChooser(i, "اختار صورتين (الفرضين)"), 4);
+            }
+        }), 52));
 
         // ===== 3) تحكم =====
         LinearLayout center = glassCard("🎮 تحكم", 0xB3FFFDF8, 0xCCE7D7BE);
@@ -1093,8 +1102,10 @@ public class SenderActivity extends Activity {
                 }
             }
             if (wifiCb == null && Build.VERSION.SDK_INT >= 21) {
-                android.net.NetworkRequest rq = new android.net.NetworkRequest.Builder()
-                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI).build();
+                android.net.NetworkRequest.Builder rqb = new android.net.NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
+                try { rqb.removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET); } catch (Exception ignored) {}
+                android.net.NetworkRequest rq = rqb.build();
                 wifiCb = new ConnectivityManager.NetworkCallback() {
                     @Override public void onAvailable(Network n) {
                         wifiNet = n;
@@ -1545,6 +1556,18 @@ public class SenderActivity extends Activity {
             else setStatus("تلغى عرض الشاشة");
             return;
         }
+        if (req == 4) {
+            if (res == RESULT_OK && data != null) {
+                ArrayList<Uri> us = new ArrayList<Uri>();
+                if (data.getClipData() != null) {
+                    for (int k = 0; k < data.getClipData().getItemCount() && us.size() < 3; k++)
+                        us.add(data.getClipData().getItemAt(k).getUri());
+                } else if (data.getData() != null) us.add(data.getData());
+                if (us.size() < 2) setStatus("❌ لازم تختار صورتين (حدد الصورتين مع بعض)");
+                else sendMulti(us);
+            }
+            return;
+        }
         if (res == RESULT_OK && data != null && data.getData() != null) {
             if (req == 1) { playFromPhone(data.getData(), displayName(data.getData())); return; }   // الفيديو كيتبث فالحين بلا نسخ
             String t = req == 2 ? "image" : req == 3 ? "pdf" : null;
@@ -1608,6 +1631,55 @@ public class SenderActivity extends Activity {
         }).start();
     }
 
+    // فرضين (ولا 3) فنفس الشاشة: كل ورقة كتتبعث لخانتها، وTV Box كيقسم الشاشة ملي توصل كاملة
+    private void sendMulti(final ArrayList<Uri> uris) {
+        final String codeNow = code();
+        setStatus("كنبعث الفرضين...");
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    bindWifi();
+                    int total = uris.size();
+                    for (int slot = 0; slot < total; slot++) {
+                        Uri uri = uris.get(slot);
+                        String name = displayName(uri);
+                        long size = -1;
+                        Cursor cur = getContentResolver().query(uri, null, null, null, null);
+                        if (cur != null) {
+                            if (cur.moveToFirst()) {
+                                int si = cur.getColumnIndex(OpenableColumns.SIZE);
+                                if (si >= 0 && !cur.isNull(si)) size = cur.getLong(si);
+                            }
+                            cur.close();
+                        }
+                        if (size < 0) {
+                            AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(uri, "r");
+                            if (afd != null) { size = afd.getLength(); afd.close(); }
+                        }
+                        if (size < 0) { setStatus("❌ ما قدرتش نعرف حجم الورقة " + (slot + 1)); return; }
+                        String kind = fileKind(name, getContentResolver().getType(uri));
+                        String type = "pdf".equals(kind) ? "pdf" : "image";
+                        if (!name.contains(".")) name += type.equals("pdf") ? ".pdf" : ".jpg";
+                        int rc = -1;
+                        for (int attempt = 0; attempt < 2 && rc != 200; attempt++) {
+                            if (ip == null) ip = findTv(codeNow, 2500);
+                            if (ip == null) { setStatus("❌ ما لقيتش TV Box. اضغط اتصل."); return; }
+                            try {
+                                rc = uploadTo("/multi?slot=" + slot + "&total=" + total, "ورقة " + (slot + 1) + ": ",
+                                        ip, codeNow, uri, type, name, size);
+                            } catch (Exception e) { ip = null; rc = -1; }
+                        }
+                        if (rc == 403) { setStatus("❌ الكود غلط"); return; }
+                        if (rc != 200) { setStatus("❌ فشل إرسال الورقة " + (slot + 1) + ". اضغط اتصل."); return; }
+                    }
+                    setStatus("✅ الفرضين كيتعرضو فالداتا شو");
+                } catch (Exception e) {
+                    setStatus("❌ " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
     private int upload(String host, String code, Uri uri, String type, String name, long size) throws Exception {
         return uploadTo("/send", "", host, code, uri, type, name, size);
     }
@@ -1623,7 +1695,7 @@ public class SenderActivity extends Activity {
             wk.acquire(6 * 60 * 60 * 1000L);
         } catch (Exception ignored) {}
         try {
-            URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + path + "?type=" + type
+            URL url = new URL("http://" + host + ":" + Net.HTTP_PORT + path + (path.indexOf('?') >= 0 ? "&" : "?") + "type=" + type
                     + (type.equals("video") ? "" : "&exam=1")
                     + "&name=" + URLEncoder.encode(name, "UTF-8"));
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
