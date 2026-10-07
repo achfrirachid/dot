@@ -81,7 +81,7 @@ public class SenderActivity extends Activity {
         super.onCreate(b);
         sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         ip = sp.getString("ip", null);
-        mlevel = sp.getInt("mlevel3", 2);
+        mlevel = sp.getInt("mlevel4", 3);
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
@@ -511,15 +511,15 @@ public class SenderActivity extends Activity {
         LinearLayout center = glassCard("🎮 تحكم", 0xB3FFFDF8, 0xCCE7D7BE);
         LinearLayout d1 = box(false);
         d1.addView(hw(new View(this), 1f));
-        d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 220), 1f));
+        d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 300), 1f));
         d1.addView(hw(new View(this), 1f));
         LinearLayout d2 = box(false);
-        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 220), 1f));
+        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 300), 1f));
         d2.addView(hw(gbtn("🎯", C_PINK, ctl("zreset")), 1f));
-        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 220), 1f));
+        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 300), 1f));
         LinearLayout d3 = box(false);
         d3.addView(hw(new View(this), 1f));
-        d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 220), 1f));
+        d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 300), 1f));
         d3.addView(hw(new View(this), 1f));
         LinearLayout[] ds = {d1, d2, d3};
         for (LinearLayout rr : ds) {
@@ -587,7 +587,7 @@ public class SenderActivity extends Activity {
         left.addView(fx(rowOf(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5),
                 levelCell("🌓 تعتيم الصور", "idim", 0, 10, 0)), 72));
         left.addView(fx(rowOf(levelCell("↔ هامش الورقة (حروف اليسار)", "mar", 0, 10, 4),
-                levelCell("🔅 تخفيف البياض", "wh2", 0, 10, 8)), 72));
+                levelCell("🔅 تخفيف البياض", "wh3", 0, 10, 9)), 72));
         left.addView(fx(rowOf(
                 gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
                     @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
@@ -598,7 +598,7 @@ public class SenderActivity extends Activity {
                 gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         preset(10, 5, 5, 5, 0, 0);
-                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wh2", 8);
+                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wh3", 9);
                         setLevel("vbri", 5); setLevel("vcon", 5); setLevel("vsat", 5);
                     }
                 })), 56));
@@ -623,8 +623,8 @@ public class SenderActivity extends Activity {
                 })), 56));
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) {
-                mlevel = (mlevel + 1) % 4;
-                sp.edit().putInt("mlevel3", mlevel).commit();
+                mlevel = (mlevel + 1) % 5;
+                sp.edit().putInt("mlevel4", mlevel).commit();
                 mBtn.setText(levelText());
                 try { startService(new Intent(SenderActivity.this, ScreenService.class)
                         .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}
@@ -1325,7 +1325,7 @@ public class SenderActivity extends Activity {
 
     private void sendCmd(final String cmd) {
         if ("zin".equals(cmd)) zl = Math.min(6f, zl + 0.5f);
-        else if ("zout".equals(cmd)) zl = Math.max(1f, zl - 0.5f);
+        else if ("zout".equals(cmd)) zl = Math.max(0.5f, zl - 0.5f);
         else if ("zreset".equals(cmd)) zl = 1f;
         if (zBtn != null && cmd.startsWith("z")) ui.post(new Runnable() {
             @Override public void run() { zBtn.setText((zl == (int) zl ? String.valueOf((int) zl) : String.valueOf(zl)) + "x"); }
@@ -1379,7 +1379,7 @@ public class SenderActivity extends Activity {
 
     private String levelText() {
         String q = mlevel == 0 ? "منخفضة 854" : mlevel == 2 ? "Full HD 1920"
-                : mlevel == 3 ? "فائقة 2560" : "عادية 1280";
+                : mlevel == 3 ? "فائقة 2560" : mlevel == 4 ? "أقصى (دقة الهاتف)" : "عادية 1280";
         return "📺 دقة العرض\n" + q;
     }
 

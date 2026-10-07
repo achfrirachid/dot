@@ -111,7 +111,7 @@ public class ReceiverActivity extends Activity {
     private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
     private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
     // تخفيف البياض (0-10): كيلين غير الأبيض/الفاتح بزاف (ضوء الداتا شو) والكتابة السوداء والألوان كيبقاو كيف هوما
-    private volatile int lvlWht = 8;
+    private volatile int lvlWht = 9;
     private final int[] whtLut = new int[512];   // معامل (x256) حسب درجة البياض
     private int whtLutFor = -1;
     private View dimView;
@@ -171,7 +171,7 @@ public class ReceiverActivity extends Activity {
         lvlGam = sp.getInt("l_gam", 5);
         lvlVdim = sp.getInt("l_vdim", 6);
         lvlIdim = sp.getInt("l_idim", 0);
-        lvlWht = sp.getInt("l_wh2", 8);
+        lvlWht = sp.getInt("l_wh3", 9);
         lvlMar = sp.getInt("l_mar", 4);
         boostMb = sp.getInt("l_boost", 0);
         spd = sp.getInt("l_spd", 10);
@@ -428,7 +428,7 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) return lvlFit;
         if ("vdim".equals(k)) return lvlVdim;
         if ("idim".equals(k)) return lvlIdim;
-        if ("wh2".equals(k)) return lvlWht;
+        if ("wh3".equals(k)) return lvlWht;
         if ("mar".equals(k)) return lvlMar;
         if ("bri".equals(k)) return lvlBri;
         if ("con".equals(k)) return lvlCon;
@@ -621,7 +621,7 @@ public class ReceiverActivity extends Activity {
         body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
         body.addView(pRow("\u2712 غلظة الكتابة", "txt", true));
         body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
-        body.addView(pRow("\uD83D\uDD05 تخفيف البياض", "wh2", true));
+        body.addView(pRow("\uD83D\uDD05 تخفيف البياض", "wh3", true));
         body.addView(pRow("\uD83C\uDF13 تعتيم الصور", "idim", true));
         body.addView(pRow("\u2194 هامش الورقة", "mar", true));
 
@@ -893,7 +893,7 @@ public class ReceiverActivity extends Activity {
                 reply(out, 200, "ok");
             } else if ("/levels".equals(p)) {
                 reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
-                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wh2=" + lvlWht + ",mar=" + lvlMar
+                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wh3=" + lvlWht + ",mar=" + lvlMar
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
@@ -1371,9 +1371,10 @@ public class ReceiverActivity extends Activity {
     }
 
     private void applyZoom() {
-        if (zoom <= 1f) { zoom = 1f; panX = 0f; panY = 0f; }
+        if (zoom < 0.5f) zoom = 0.5f;
+        if (zoom <= 1f) { panY = 0f; }
         float eff = zoom * fit;
-        float mx = Math.max(0f, (eff - 1f) * root.getWidth() / 2f);
+        float mx = Math.max((eff - 1f) * root.getWidth() / 2f, root.getWidth() * 0.45f);   // الورقة كتزحف يمين/يسار حتى فوضع 1x
         float my = Math.max(0f, (eff - 1f) * root.getHeight() / 2f);
         panX = Math.max(-mx, Math.min(mx, panX));
         panY = Math.max(-my, Math.min(my, panY));
@@ -1506,10 +1507,10 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) { lvlFit = clamp(n, 1, 10); ed.putInt("l_fit", lvlFit); }
         else if ("vdim".equals(k)) { lvlVdim = clamp(n, 0, 10); ed.putInt("l_vdim", lvlVdim); }
         else if ("idim".equals(k)) { lvlIdim = clamp(n, 0, 10); ed.putInt("l_idim", lvlIdim); }
-        else if ("wh2".equals(k)) {
+        else if ("wh3".equals(k)) {
             int old = lvlWht;
             lvlWht = clamp(n, 0, 10);
-            ed.putInt("l_wh2", lvlWht);
+            ed.putInt("l_wh3", lvlWht);
             ed.commit();
             refreshSettings();
             if (old != lvlWht && curType != null && !"stream".equals(curType)) reload();
@@ -1756,7 +1757,7 @@ public class ReceiverActivity extends Activity {
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zout":
-                zoom = Math.max(1f, Math.round((zoom - 0.5f) * 2f) / 2f); applyZoom();
+                zoom = Math.max(0.5f, Math.round((zoom - 0.5f) * 2f) / 2f); applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zreset":
@@ -1768,18 +1769,18 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "pl":
-                panX += root.getWidth() * 0.06f; applyZoom();
+                panX += root.getWidth() * 0.2f; applyZoom();
                 break;
             case "pr":
-                panX -= root.getWidth() * 0.06f; applyZoom();
+                panX -= root.getWidth() * 0.2f; applyZoom();
                 break;
             case "pu":
-                if (multiShown()) { scrollMulti(-root.getHeight() * 0.12f); break; }
-                if (!image.scrollContent(-root.getHeight() * 0.12f)) { panY += root.getHeight() * 0.08f; applyZoom(); }
+                if (multiShown()) { scrollMulti(-root.getHeight() * 0.30f); break; }
+                if (!image.scrollContent(-root.getHeight() * 0.30f)) { panY += root.getHeight() * 0.25f; applyZoom(); }
                 break;
             case "pd":
-                if (multiShown()) { scrollMulti(root.getHeight() * 0.12f); break; }
-                if (!image.scrollContent(root.getHeight() * 0.12f)) { panY -= root.getHeight() * 0.08f; applyZoom(); }
+                if (multiShown()) { scrollMulti(root.getHeight() * 0.30f); break; }
+                if (!image.scrollContent(root.getHeight() * 0.30f)) { panY -= root.getHeight() * 0.25f; applyZoom(); }
                 break;
             case "imode":
                 if (multiShown()) {
@@ -2002,8 +2003,8 @@ public class ReceiverActivity extends Activity {
     // درجة البياض = أصغر قناة (RGB). الأخضر/الأحمر/الوجوه عندها قناة صغيرة => ما كيتبدلوش
     private void buildWhtLut() {
         if (whtLutFor == lvlWht) return;
-        float cap = 0.055f * lvlWht;   // تخفيف الأبيض: 0 = بلا تغيير ، 10 = الأبيض يولي 45%
-        float ink = 0.035f * lvlWht;   // تغميق الحبر (الكتابة الباهتة): الأسود كيزيد صفاء
+        float cap = 0.065f * lvlWht;   // تخفيف الأبيض: 0 = بلا تغيير ، 10 = الأبيض يولي 45%
+        float ink = 0.04f * lvlWht;   // تغميق الحبر (الكتابة الباهتة): الأسود كيزيد صفاء
         for (int w = 0; w < 256; w++) {
             float t = (w - 110f) / 145f;
             t = Math.max(0f, Math.min(1f, t));

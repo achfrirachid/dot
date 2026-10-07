@@ -173,7 +173,7 @@ public class ScreenService extends Service {
             DisplayMetrics dm = new DisplayMetrics();
             ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
             dpi = dm.densityDpi;
-            int longSide = level == 0 ? 854 : level == 1 ? 1280 : level == 2 ? 1920 : 2560;
+            int longSide = level == 0 ? 854 : level == 1 ? 1280 : level == 2 ? 1920 : level == 3 ? 2560 : 4096;
             if (compat && longSide > 1920) longSide = 1920;
             float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
             int al = compat ? 16 : 2;
