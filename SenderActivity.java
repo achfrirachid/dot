@@ -523,9 +523,9 @@ public class SenderActivity extends Activity {
         d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 150), 1f));
         d1.addView(hw(new View(this), 1f));
         LinearLayout d2 = box(false);
-        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 150), 1f));
+        d2.addView(hw(holdBtn("◀", "pl", C_CREAM, 40), 1f));
         d2.addView(hw(gbtn("🎯", C_PINK, ctl("zreset")), 1f));
-        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 150), 1f));
+        d2.addView(hw(holdBtn("▶", "pr", C_CREAM, 40), 1f));
         LinearLayout d3 = box(false);
         d3.addView(hw(new View(this), 1f));
         d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 150), 1f));

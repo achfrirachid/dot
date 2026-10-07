@@ -1215,7 +1215,7 @@ public class ReceiverActivity extends Activity {
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(f.getPath(), o);
         int s = 1;
-        int cap = quality == 2 ? 4096 : 1920;
+        int cap = quality == 2 ? 4096 : 1280;
         while (o.outWidth / s > cap || o.outHeight / s > cap) s *= 2;
         o = new BitmapFactory.Options();
         o.inSampleSize = s;
@@ -1823,11 +1823,13 @@ public class ReceiverActivity extends Activity {
             case "qh":
                 quality = 2;
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 2).commit();
+                Toast.makeText(this, "🔍 جودة عالية (حتى 4096)", Toast.LENGTH_SHORT).show();
                 reload();
                 break;
             case "ql":
                 quality = 1;
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 1).commit();
+                Toast.makeText(this, "🔍 جودة عادية (1280)", Toast.LENGTH_SHORT).show();
                 reload();
                 break;
             case "vfill":
@@ -1861,10 +1863,10 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "pl":
-                glide(localW() * 0.1f, 0f);
+                panBy(localW() * 0.001f, 0f);    // خطوة دقيقة: 0.001 من العرض
                 break;
             case "pr":
-                glide(-localW() * 0.1f, 0f);
+                panBy(-localW() * 0.001f, 0f);
                 break;
             case "pu":
                 glide(0f, -localH() * 0.1f);
@@ -1947,6 +1949,9 @@ public class ReceiverActivity extends Activity {
             v.setMode(FillImageView.FIT);
             if (bm != null) v.setImageBitmap(tameWhite(thicken(bm)));
         }
+        if (glassBg != null) glassBg.setVisibility(View.GONE);   // الإطار الزجاجي الأبيض كان كيعطي ضو زايد
+        root.setBackgroundColor(Color.BLACK);
+        multi.setBackgroundColor(Color.BLACK);
         idle.setVisibility(View.GONE); applyDim();
         image.setVisibility(View.GONE);
         multi.setVisibility(View.VISIBLE);
@@ -1960,7 +1965,7 @@ public class ReceiverActivity extends Activity {
         PdfRenderer r = new PdfRenderer(fd);
         try {
             PdfRenderer.Page pg = r.openPage(0);
-            int hh = Math.min((int) (viewH * 1.6f), 2560);
+            int hh = Math.min((int) (viewH * 1.6f), quality == 2 ? 2560 : 1280);
             float sc = (float) hh / pg.getHeight();
             int w = Math.max(1, (int) (pg.getWidth() * sc));
             Bitmap bm = Bitmap.createBitmap(w, hh, Bitmap.Config.ARGB_8888);
@@ -1979,7 +1984,8 @@ public class ReceiverActivity extends Activity {
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(f.getPath(), o);
         int s = 1;
-        while (o.outWidth / s > 2560 || o.outHeight / s > 2560) s *= 2;
+        int mcap = quality == 2 ? 3072 : 1280;
+        while (o.outWidth / s > mcap || o.outHeight / s > mcap) s *= 2;
         o = new BitmapFactory.Options();
         o.inSampleSize = s;
         Bitmap bm = BitmapFactory.decodeFile(f.getPath(), o);
@@ -2091,10 +2097,14 @@ public class ReceiverActivity extends Activity {
 
     // تخفيف البياض: كيلين غير البكسلات الفاتحة (الورقة البيضاء) بدون ما يمس الأسود ولا الألوان الحقيقية
     // درجة البياض = أصغر قناة (RGB). الأخضر/الأحمر/الوجوه عندها قناة صغيرة => ما كيتبدلوش
-    private void buildWhtLut() {
-        if (whtLutFor == lvlWht) return;
-        float cap = 0.065f * lvlWht;   // تخفيف الأبيض: 0 = بلا تغيير ، 10 = الأبيض يولي 45%
-        float ink = 0.04f * lvlWht;   // تغميق الحبر (الكتابة الباهتة): الأسود كيزيد صفاء
+    private void buildWhtLut() { buildWhtLut(1f); }
+
+    // k = قوة التخفيف (1 = ورقة/امتحان، أقل = صورة ملونة) باش الصور والألوان ما توليش معتمة
+    private void buildWhtLut(float k) {
+        int key = lvlWht * 16 + Math.round(k * 10f);
+        if (whtLutFor == key) return;
+        float cap = 0.065f * lvlWht * k;   // تخفيف الأبيض: 0 = بلا تغيير
+        float ink = 0.03f * lvlWht * k;   // تغميق الحبر (الكتابة الباهتة) فقط فالأسود/الرمادي
         for (int w = 0; w < 256; w++) {
             float t = (w - 110f) / 145f;
             t = Math.max(0f, Math.min(1f, t));
@@ -2105,23 +2115,48 @@ public class ReceiverActivity extends Activity {
             u = u * u * (3f - 2f * u);
             whtLut[256 + w] = Math.round(256f * (1f - ink * (1f - u)));
         }
-        whtLutFor = lvlWht;
+        whtLutFor = key;
     }
 
     private static int whtPix(int p, int[] L) {
         int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
         int m = r < g ? (r < b ? r : b) : (g < b ? g : b);
         int M = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        int chroma = M - m;
+        if (chroma >= 64) return p;   // لون حقيقي (أحمر، أخضر، وجوه...): ما كيتبدل والو
         int f = (L[m] * L[256 + M]) >> 8;
         if (f >= 256) return p;
+        if (chroma > 24) f = 256 - ((256 - f) * (64 - chroma)) / 40;   // انتقال ناعم بين الرمادي والملون
         return (p & 0xFF000000) | (((r * f) >> 8) << 16) | (((g * f) >> 8) << 8) | ((b * f) >> 8);
+    }
+
+    // أوتوماتيكي: ورقة (بياض كثير) = تخفيف كامل / صورة ملونة = تخفيف خفيف باش تبقى بألوانها الطبيعية
+    private static float paperStrength(Bitmap b) {
+        try {
+            int w = b.getWidth(), h = b.getHeight();
+            int step = Math.max(1, (int) Math.sqrt((double) w * h / 20000.0));
+            int tot = 0, paper = 0;
+            for (int y = 0; y < h; y += step) {
+                for (int x = 0; x < w; x += step) {
+                    int p = b.getPixel(x, y);
+                    int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, bl = p & 0xFF;
+                    int mn = Math.min(r, Math.min(g, bl)), mx = Math.max(r, Math.max(g, bl));
+                    tot++;
+                    if (mn > 170 && mx - mn < 28) paper++;
+                }
+            }
+            float frac = tot == 0 ? 1f : paper / (float) tot;
+            return Math.max(0.3f, Math.min(1f, frac / 0.35f));
+        } catch (Throwable t) {
+            return 1f;
+        }
     }
 
     // للصور/PDF/الأوراق: كيشتغل على شرائح باش ما ياكلش الذاكرة. وضع السبورة (inv) كيقلب الألوان بوحدو
     private Bitmap tameWhite(Bitmap bm) {
         if (bm == null || lvlWht <= 0 || inv == 1) return bm;
         try {
-            buildWhtLut();
+            buildWhtLut(paperStrength(bm));
             Bitmap res = bm.isMutable() && bm.getConfig() == Bitmap.Config.ARGB_8888 ? bm : bm.copy(Bitmap.Config.ARGB_8888, true);
             if (res == null) return bm;
             int w = res.getWidth(), h = res.getHeight();
@@ -2147,7 +2182,7 @@ public class ReceiverActivity extends Activity {
         int wt = lvlWht;
         if ((g <= 0 && wt <= 0) || b == null) return b;
         try {
-            buildWhtLut();
+            buildWhtLut(1f);
             if (gamLutFor != g) {
                 double gm = 1.0 - 0.05 * Math.max(0, g);
                 for (int i = 0; i < 256; i++) gamLut[i] = (int) Math.round(255.0 * Math.pow(i / 255.0, gm));
@@ -2274,7 +2309,19 @@ public class ReceiverActivity extends Activity {
     private void reload() {
         try {
             if ("pdf".equals(curType) && pdf != null) renderPage();
-            else if ("image".equals(curType) && curFile != null) image.setImageBitmap(decode(curFile));
+            else if ("image".equals(curType) && curFile != null) {
+                final File rf = curFile;
+                new Thread(new Runnable() {
+                    @Override public void run() {
+                        final Bitmap nb = decode(rf);
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                if (curFile == rf && nb != null) { image.setImageBitmap(nb); image.refreshQuality(); }
+                            }
+                        });
+                    }
+                }).start();
+            }
             else if ("multi".equals(curType) && multiFiles != null) showMulti();
         } catch (Exception ignored) {}
     }
