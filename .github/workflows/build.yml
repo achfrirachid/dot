@@ -18,7 +18,8 @@ jobs:
       - name: Generate app icon (light blue)
         run: |
           pip install pillow
-          M=$(find . -name AndroidManifest.xml -not -path "*/build/*" | head -1)
+          M=./AndroidManifest.xml
+          [ -f "$M" ] || M=$(find . -name AndroidManifest.xml -not -path "*/build/*" | head -1)
           RES="$(dirname "$M")/res"
           echo "manifest: $M  res: $RES"
           cat > /tmp/gen_icons.py <<'PYEOF'
@@ -55,6 +56,15 @@ jobs:
           PYEOF
           python3 /tmp/gen_icons.py "$RES"
           ls -R "$RES" | head -30
+      - name: Sync updated Java files to the real source folder
+        run: |
+          if [ -d app/src/main/java/com/tvlink/app ]; then
+            for f in app/src/main/java/com/tvlink/app/*.java; do
+              n=$(basename "$f")
+              t=$(find . -name "$n" -not -path "./app/*" -not -path "*/build/*" | head -1)
+              if [ -n "$t" ]; then cp "$f" "$t"; echo "updated $t"; else echo "no target for $n"; fi
+            done
+          fi
       - run: gradle assembleDebug --no-daemon
       - run: find /tmp/tvlink-build -name "*.apk"
       - uses: actions/upload-artifact@v4
