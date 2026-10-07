@@ -34,6 +34,8 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.util.TypedValue;
 import android.widget.FrameLayout;
 import android.widget.Button;
@@ -89,9 +91,9 @@ public class SenderActivity extends Activity {
             SharedPreferences.Editor me = sp.edit().putBoolean("def0v1", true);
             if (sp.getInt("s_txt", 0) == 1) me.putInt("s_txt", 0);
             if (sp.getInt("s_sha", 0) == 7) me.putInt("s_sha", 0);
-            me.apply();
+            me.commit();
         }
-        if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).apply();
+        if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).commit();
         bindWifi();
         buildUi();
         applyAutoRotate();
@@ -266,10 +268,24 @@ public class SenderActivity extends Activity {
         return Color.HSVToColor(Color.alpha(c), hsv);
     }
 
+    private int mixWhite(int c, float f) {
+        int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+        r += (int) ((255 - r) * f); g += (int) ((255 - g) * f); b += (int) ((255 - b) * f);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    private GradientDrawable glassBtnShape(int fill, int stroke, int alpha) {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{(alpha << 24) | mixWhite(fill & 0xFFFFFF, 0.6f), (alpha << 24) | (fill & 0xFFFFFF)});
+        g.setCornerRadius(dp(18));
+        g.setStroke(dp(2), stroke);
+        return g;
+    }
+
     private StateListDrawable glassState(int idx) {
         StateListDrawable s = new StateListDrawable();
-        s.addState(new int[]{android.R.attr.state_pressed}, shape(darker(P_FILL[idx]), P_STROKE[idx], 22, 2));
-        s.addState(new int[]{}, shape(P_FILL[idx], P_STROKE[idx], 22, 2));
+        s.addState(new int[]{android.R.attr.state_pressed}, glassBtnShape(darker(P_FILL[idx]), P_STROKE[idx], 0xFF));
+        s.addState(new int[]{}, glassBtnShape(P_FILL[idx], P_STROKE[idx], 0xE6));
         return s;
     }
 
@@ -401,93 +417,98 @@ public class SenderActivity extends Activity {
         return v;
     }
 
+    // خانة بارتفاع ثابت فعمود
+    private <T extends View> T fx(T v, int hDp) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(hDp));
+        lp.setMargins(dp(2), dp(3), dp(2), dp(3));
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    private void addCard(LinearLayout content, View card) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dp(8), 0, 0);
+        content.addView(card, lp);
+    }
+
+    private LinearLayout rowOf(View... vs) {
+        LinearLayout r = box(false);
+        for (View v : vs) r.addView(hw(v, 1f));
+        return r;
+    }
+
     private void buildUi() {
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
 
-        // ===== الخانة العلوية: الاتصال بـ TV Box (صغيرة وكلماتها ظاهرة) =====
-        LinearLayout top = glassCard(null, 0xE6EEF2FF, 0xFF93B4F5);
-        top.setPadding(dp(8), dp(3), dp(8), dp(4));
-        TextView ct = label("🔗 الاتصال بـ TV Box", 15, true);
-        ct.setTextColor(0xFF3B3B4F);
-        top.addView(ct, new LinearLayout.LayoutParams(-1, -2));
+        // ===== 1) الأعلى: ثلاث خانات صغيرة (اتصال · IP · كود) =====
+        LinearLayout top = glassCard(null, 0xB3EEF2FF, 0xCC93B4F5);
+        top.setPadding(dp(6), dp(4), dp(6), dp(4));
+
         status = new TextView(this);
-        status.setTextSize(12);
+        status.setTextSize(11);
         status.setTextColor(INK);
         status.setGravity(Gravity.CENTER);
         status.setMaxLines(2);
-        status.setText("دخل الكود واضغط اتصال");
+        status.setText("كيتصل تلقائيا بـ TV Box...");
 
-        LinearLayout t2 = box(false);
         codeF = new EditText(this);
-        codeF.setHint("🔑 كود TV Box");
         codeF.setInputType(InputType.TYPE_CLASS_NUMBER);
         codeF.setText(sp.getString("paircode", Net.DEFAULT_CODE));
         field(codeF, 15);
         ipF = new EditText(this);
-        ipF.setHint("🌐 IP (اختياري)");
         ipF.setInputType(InputType.TYPE_CLASS_PHONE);
-        field(ipF, 13);
         ipF.setText(sp.getString("manual_ip", ""));
-        autoSave(codeF, "paircode");
-        autoSave(ipF, "manual_ip");
-        Button cn = gbtn("🔗 اتصال", C_BLUE, new View.OnClickListener() {
+        ipF.setHint("IP");
+        field(ipF, 14);
+
+        connChip = gbtn("🔗 اتصال", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { connect(); }
         });
-        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, dp(38), 1.1f);
-        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, dp(38), 1.1f);
-        LinearLayout.LayoutParams p3 = new LinearLayout.LayoutParams(0, dp(38), 0.9f);
-        p1.setMargins(dp(2), dp(2), dp(2), dp(2));
-        p2.setMargins(dp(2), dp(2), dp(2), dp(2));
-        p3.setMargins(dp(2), dp(2), dp(2), dp(2));
-        t2.addView(codeF, p1);
-        t2.addView(ipF, p2);
-        t2.addView(cn, p3);
-        top.addView(t2, new LinearLayout.LayoutParams(-1, -2));
-        top.addView(status, new LinearLayout.LayoutParams(-1, -2));
+        ipChip = gbtn(ipChipText(), C_CYAN, null);
+        codeChip = gbtn(codeChipText(), C_AMBER, null);
 
-        // ===== العمود اليسار: ضبط الصورة =====
-        LinearLayout left = glassCard("🎛 ضبط الصورة", 0xE6E3F2FD, 0xFF64B5F6);
-        left.addView(vw(levelCell("📐 الحجم", "fit", 1, 10, 10), 1f));
-        left.addView(vw(levelCell("☀️ السطوع", "bri", 1, 10, 5), 1f));
-        left.addView(vw(levelCell("◐ التباين", "con", 1, 10, 5), 1f));
-        left.addView(vw(levelCell("🎨 الألوان", "sat", 1, 10, 5), 1f));
-        left.addView(vw(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 0), 1f));
-        left.addView(vw(levelCell("🔎 حدة الصورة", "sha", 0, 10, 0), 1f));
-        left.addView(vw(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5), 1f));
-        left.addView(vw(levelCell("🎥 تعتيم الفيديو", "vdim", 0, 10, 6), 1f));
-        LinearLayout lr1 = box(false);
-        lr1.addView(hw(gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
-        }), 1f));
-        lr1.addView(hw(gbtn("🎬\nألوان", C_AMBER, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
-        }), 1f));
-        left.addView(vw(lr1, 1.1f));
-        LinearLayout lr2 = box(false);
-        lr2.addView(hw(gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); setLevel("gam", 5); setLevel("vdim", 6); }
-        }), 1f));
-        lr2.addView(hw(gbtn("⚙️\nالوضع", C_PURPLE, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                sp.edit().remove("mode").apply();
-                startActivity(new Intent(SenderActivity.this, MainActivity.class).putExtra("choose", true));
-                finish();
-            }
-        }), 1f));
-        left.addView(vw(lr2, 1.1f));
-        bBtn = gbtn(invText(), C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                int nv = sp.getInt("s_inv", 0) == 1 ? 0 : 1;
-                sp.edit().putInt("s_inv", nv).putBoolean("s_dirty", true).apply();
-                bBtn.setText(invText());
-                sendCmd("inv:" + nv);
+        FrameLayout ipBox = inlineChip(ipChip, ipF, new Runnable() {
+            @Override public void run() {
+                sp.edit().putString("manual_ip", ipF.getText().toString().trim()).commit();
+                ipChip.setText(ipChipText());
+                connect();
             }
         });
-        left.addView(vw(bBtn, 0.9f));
+        FrameLayout codeBox = inlineChip(codeChip, codeF, new Runnable() {
+            @Override public void run() {
+                String v = codeF.getText().toString().trim();
+                if (v.isEmpty()) {
+                    codeF.setText(sp.getString("paircode", Net.DEFAULT_CODE));
+                } else {
+                    sp.edit().putString("paircode", v).commit();
+                    cmdCode = v;
+                }
+                codeChip.setText(codeChipText());
+                if (!v.isEmpty()) connect();
+            }
+        });
+        LinearLayout chips = box(false);
+        LinearLayout.LayoutParams c1 = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        LinearLayout.LayoutParams c2 = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        LinearLayout.LayoutParams c3 = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        c1.setMargins(dp(2), dp(2), dp(2), dp(2));
+        c2.setMargins(dp(2), dp(2), dp(2), dp(2));
+        c3.setMargins(dp(2), dp(2), dp(2), dp(2));
+        chips.addView(connChip, c1);
+        chips.addView(ipBox, c2);
+        chips.addView(codeBox, c3);
+        top.addView(chips, new LinearLayout.LayoutParams(-1, -2));
+        top.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
-        // ===== العمود الوسط: الأسهم + التكبير + الصوت + التشغيل =====
-        LinearLayout center = glassCard("🎮 تحكم", 0xF2FFFDF8, 0xFFE7D7BE);
-        LinearLayout dpad = box(true);
+        // ===== 2) إرسال ملف =====
+        LinearLayout send = glassCard("📤 أرسل للداتا شو", 0xB3FCE4EC, 0xCCF4A6C0);
+        send.addView(fx(rowOf(
+                gbtn("🎬\nفيديو", C_ORANGE, pickL("video/*", 1)),
+                gbtn("🖼\nصورة", C_PINK, pickL("image/*", 2)),
+                gbtn("📄\nPDF", C_PURPLE, pickL("application/pdf", 3))), 62));
+
+        // ===== 3) تحكم =====
+        LinearLayout center = glassCard("🎮 تحكم", 0xB3FFFDF8, 0xCCE7D7BE);
         LinearLayout d1 = box(false);
         d1.addView(hw(new View(this), 1f));
         d1.addView(hw(holdBtn("▲", "pu", C_CREAM, 220), 1f));
@@ -500,47 +521,44 @@ public class SenderActivity extends Activity {
         d3.addView(hw(new View(this), 1f));
         d3.addView(hw(holdBtn("▼", "pd", C_CREAM, 220), 1f));
         d3.addView(hw(new View(this), 1f));
-        dpad.addView(vw(d1, 1f));
-        dpad.addView(vw(d2, 1f));
-        dpad.addView(vw(d3, 1f));
-        for (int i = 0; i < 3; i++) {
-            LinearLayout rr = (LinearLayout) dpad.getChildAt(i);
+        LinearLayout[] ds = {d1, d2, d3};
+        for (LinearLayout rr : ds) {
             for (int j = 0; j < 3; j++) {
                 View ch = rr.getChildAt(j);
                 if (ch instanceof Button) autosize((Button) ch, 14, 30);
             }
+            center.addView(fx(rr, 52));
         }
-        center.addView(vw(dpad, 3.3f));
 
         LinearLayout zr = box(false);
         zr.addView(hw(holdBtn("−", "zout", C_ORANGE, 350), 1f));
         zBtn = gbtn("1x", C_ORANGE, ctl("zreset"));
         zr.addView(hw(zBtn, 0.8f));
         zr.addView(hw(holdBtn("+", "zin", C_ORANGE, 350), 1f));
-        center.addView(vw(zr, 1f));
+        center.addView(fx(zr, 48));
 
         LinearLayout vr = box(false);
         vr.addView(hw(holdBtn("🔉\n−", "voldown", C_BLUE, 300), 1f));
         vr.addView(hw(holdBtn("🔇", "mute", C_BLUE, 0), 0.8f));
         vr.addView(hw(holdBtn("🔊\n+", "volup", C_BLUE, 300), 1f));
-        center.addView(vw(vr, 1.15f));
+        center.addView(fx(vr, 54));
 
         LinearLayout mr = box(false);
         mr.addView(hw(gbtn("⏪\n10ث", C_BLUE, ctl("back")), 1f));
         mr.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 0.9f));
         mr.addView(hw(gbtn("10ث\n⏩", C_BLUE, ctl("fwd")), 1f));
-        center.addView(vw(mr, 1f));
+        center.addView(fx(mr, 54));
 
         LinearLayout pg = box(false);
         pg.addView(hw(gbtn("◀\nصفحة", C_AMBER, ctl("prev")), 1f));
         pg.addView(hw(gbtn("⏹\nوقف", C_RED, ctl("stop")), 0.9f));
         pg.addView(hw(gbtn("صفحة\n▶", C_AMBER, ctl("next")), 1f));
-        center.addView(vw(pg, 1f));
+        center.addView(fx(pg, 54));
 
         qBtn = gbtn(hq ? "🔍\nعالية" : "🔍\nعادية", C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 hq = !hq;
-                sp.edit().putBoolean("hq", hq).putBoolean("s_dirty", true).apply();
+                sp.edit().putBoolean("hq", hq).putBoolean("s_dirty", true).commit();
                 qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
                 sendCmd(hq ? "qh" : "ql");
             }
@@ -549,128 +567,132 @@ public class SenderActivity extends Activity {
         ex.addView(hw(gbtn("🔊\nMAX", C_BLUE, ctl("volmax")), 1f));
         ex.addView(hw(gbtn("🖼\nصورة", C_PINK, ctl("imode")), 1f));
         ex.addView(hw(qBtn, 1f));
-        center.addView(vw(ex, 1f));
+        center.addView(fx(ex, 54));
 
-        // ===== العمود اليمين: الإرسال + عرض الهاتف =====
-        LinearLayout right = box(true);
-        LinearLayout send = glassCard("📤 أرسل للداتا شو", 0xE6FCE4EC, 0xFFF4A6C0);
-        send.addView(vw(gbtn("🎬  فيديو", C_ORANGE, pickL("video/*", 1)), 1f));
-        send.addView(vw(gbtn("🖼  صورة", C_PINK, pickL("image/*", 2)), 1f));
-        send.addView(vw(gbtn("📄  PDF", C_PURPLE, pickL("application/pdf", 3)), 1f));
-        right.addView(vw(send, 4.2f));
+        // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====
+        LinearLayout vset = glassCard("🎥 ضبط الفيديو (اضغط الرقم واكتبه)", 0xB3FFF3C4, 0xCCF59E0B);
+        vset.addView(fx(rowOf(levelCell("☀️ سطوع الفيديو", "vbri", 1, 10, 5),
+                levelCell("◐ تباين الفيديو", "vcon", 1, 10, 5)), 72));
+        vset.addView(fx(rowOf(levelCell("🎨 ألوان الفيديو", "vsat", 1, 10, 5),
+                levelCell("🎥 تعتيم الفيديو", "vdim", 0, 10, 6)), 72));
 
-        LinearLayout disp = glassCard("📱 عرض الهاتف", 0xE6E8F5E9, 0xFF8BC34A);
+        // ===== 5) ضبط الصور والامتحانات =====
+        LinearLayout left = glassCard("🎛 ضبط الصورة والامتحان (اضغط الرقم واكتبه)", 0xB3E3F2FD, 0xCC64B5F6);
+        left.addView(fx(rowOf(levelCell("📐 الحجم", "fit", 1, 10, 10),
+                levelCell("☀️ السطوع", "bri", 1, 10, 5)), 72));
+        left.addView(fx(rowOf(levelCell("◐ التباين", "con", 1, 10, 5),
+                levelCell("🎨 الألوان", "sat", 1, 10, 5)), 72));
+        left.addView(fx(rowOf(levelCell("🖋 غلظة الكتابة", "txt", 0, 10, 0),
+                levelCell("🔎 حدة الصورة", "sha", 0, 10, 0)), 72));
+        left.addView(fx(rowOf(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5),
+                levelCell("🌓 تعتيم الصور", "idim", 0, 10, 0)), 72));
+        left.addView(fx(rowOf(levelCell("↔ هامش الورقة (حروف اليسار)", "mar", 0, 10, 4),
+                new View(this)), 72));
+        left.addView(fx(rowOf(
+                gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
+                    @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
+                }),
+                gbtn("🎬\nألوان", C_AMBER, new View.OnClickListener() {
+                    @Override public void onClick(View v) { preset(10, 5, 6, 7, 0, 3); }
+                }),
+                gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        preset(10, 5, 5, 5, 0, 0);
+                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0);
+                        setLevel("vbri", 5); setLevel("vcon", 5); setLevel("vsat", 5);
+                    }
+                })), 56));
+        bBtn = gbtn(invText(), C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                int nv = sp.getInt("s_inv", 0) == 1 ? 0 : 1;
+                sp.edit().putInt("s_inv", nv).putBoolean("s_dirty", true).commit();
+                bBtn.setText(invText());
+                sendCmd("inv:" + nv);
+            }
+        });
+        left.addView(fx(bBtn, 58));
+
+        // ===== 6) عرض شاشة الهاتف =====
+        LinearLayout disp = glassCard("📱 عرض شاشة الهاتف", 0xB3E8F5E9, 0xCC8BC34A);
+        disp.addView(fx(rowOf(
+                gbtn("📱 ابدأ العرض", C_GREEN, new View.OnClickListener() {
+                    @Override public void onClick(View v) { startMirror(); }
+                }),
+                gbtn("⏹ وقف العرض", C_RED, new View.OnClickListener() {
+                    @Override public void onClick(View v) { stopMirror(); }
+                })), 56));
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 mlevel = (mlevel + 1) % 4;
-                sp.edit().putInt("mlevel2", mlevel).apply();
+                sp.edit().putInt("mlevel2", mlevel).commit();
                 mBtn.setText(levelText());
-                // تطبيق الدقة مباشرة على العرض الشغال
                 try { startService(new Intent(SenderActivity.this, ScreenService.class)
                         .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}
             }
         });
-        disp.addView(vw(mBtn, 1f));
+        disp.addView(fx(mBtn, 54));
         cBtn = gbtn(compatText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 compat = !compat;
-                sp.edit().putBoolean("compat", compat).apply();
+                sp.edit().putBoolean("compat", compat).commit();
                 cBtn.setText(compatText());
                 setStatus(compat ? "وضع التوافق مفعل. وقف العرض وبداه من جديد." : "وضع التوافق ملغى. وقف العرض وبداه من جديد.");
             }
         });
-        disp.addView(vw(cBtn, 1f));
         rBtn = gbtn(rotText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 autoRot = !autoRot;
-                sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").apply();
+                sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").commit();
                 rBtn.setText(rotText());
                 applyAutoRotate();
             }
         });
-        disp.addView(vw(rBtn, 1f));
-        disp.addView(vw(gbtn("🖥 الشكل\nملء ← تغطية ← أصلي", C_AMBER, ctl("lmode")), 1.15f));
+        disp.addView(fx(rowOf(cBtn, rBtn), 58));
         gBtn = gbtn(glassText(), C_PINK, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 glassOn = !glassOn;
-                sp.edit().putInt("s_glass", glassOn ? 1 : 0).putBoolean("s_dirty", true).apply();
+                sp.edit().putInt("s_glass", glassOn ? 1 : 0).putBoolean("s_dirty", true).commit();
                 gBtn.setText(glassText());
                 sendCmd("glass:" + (glassOn ? 1 : 0));
             }
         });
-        disp.addView(vw(gBtn, 1.1f));
-        disp.addView(vw(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 1f));
-        right.addView(vw(disp, 6.4f));
+        disp.addView(fx(rowOf(gbtn("🖥 الشكل\nملء ← تغطية ← أصلي", C_AMBER, ctl("lmode")), gBtn), 58));
+        disp.addView(fx(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 46));
 
-        // ===== الشريط السفلي: أهم الأزرار اليومية =====
-        LinearLayout bar = glassCard(null, 0xF2FFFDF8, 0xFFE7D7BE);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.addView(hw(gbtn("📱 ابدأ عرض الشاشة", C_GREEN, new View.OnClickListener() {
-            @Override public void onClick(View v) { startMirror(); }
-        }), 1.5f));
-        bar.addView(hw(gbtn("⏹ وقف العرض", C_RED, new View.OnClickListener() {
-            @Override public void onClick(View v) { stopMirror(); }
-        }), 1f));
+        // ===== 7) الأسفل: تغيير الوضع =====
+        Button modeBtn = gbtn("⚙️ تغيير الوضع (هاتف / TV Box)", C_PURPLE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                sp.edit().remove("mode").commit();
+                startActivity(new Intent(SenderActivity.this, MainActivity.class).putExtra("choose", true));
+                finish();
+            }
+        });
 
-        LinearLayout mid = box(false);
-        LinearLayout.LayoutParams lpL = new LinearLayout.LayoutParams(0, -1, 31f);
-        LinearLayout.LayoutParams lpC = new LinearLayout.LayoutParams(0, -1, 38f);
-        LinearLayout.LayoutParams lpR = new LinearLayout.LayoutParams(0, -1, 31f);
-        lpL.setMargins(0, 0, dp(3), 0);
-        lpC.setMargins(dp(3), 0, dp(3), 0);
-        lpR.setMargins(dp(3), 0, 0, 0);
-        mid.addView(left, lpL);
-        mid.addView(center, lpC);
-        mid.addView(right, lpR);
-
+        // ===== الترتيب من الأعلى للأسفل =====
         LinearLayout content = box(true);
-        content.setPadding(dp(6), dp(6), dp(6), dp(6));
-        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, -2);
-        tl.setMargins(0, 0, 0, dp(4));
-        // زخرفة متحركة + عنوان (نفس تزيين التطبيق الأصلي)
-        LinearLayout deco = box(false);
-        deco.setGravity(Gravity.CENTER);
-        String[] em = {"🌸", "💛", "😄", "🌸", "💛", "😄", "🌸"};
-        for (int i = 0; i < em.length; i++) {
-            TextView e = new TextView(this);
-            e.setText(em[i]);
-            e.setTextSize(20);
-            e.setGravity(Gravity.CENTER);
-            deco.addView(hw(e, 1f));
-        }
-        content.addView(deco, new LinearLayout.LayoutParams(-1, dp(30)));
-        TextView mainTitle = new TextView(this);
-        mainTitle.setText("TV Link 📱 ← 📺");
-        mainTitle.setTextSize(24);
-        mainTitle.setTypeface(null, Typeface.BOLD);
-        mainTitle.setTextColor(0xFF1E3A8A);
-        mainTitle.setGravity(Gravity.CENTER);
-        content.addView(mainTitle, new LinearLayout.LayoutParams(-1, -2));
-        TextView subTitle = new TextView(this);
-        subTitle.setText("🌷 شاشة كبيرة · جودة عالية · تحكم كامل 🌼");
-        subTitle.setTextSize(12);
-        subTitle.setTextColor(0xFF7A6F5E);
-        subTitle.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams stl = new LinearLayout.LayoutParams(-1, -2);
-        stl.setMargins(0, 0, 0, dp(4));
-        content.addView(subTitle, stl);
-        content.addView(top, tl);
-        content.addView(mid, new LinearLayout.LayoutParams(-1, 0, 1f));
+        content.setPadding(dp(8), dp(8), dp(8), dp(24));
+        content.addView(top, new LinearLayout.LayoutParams(-1, -2));
         content.addView(buildVbar(), new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, dp(54));
-        bl.setMargins(0, dp(4), 0, 0);
-        content.addView(bar, bl);
-        TextView foot = new TextView(this);
-        foot.setText("🌷🌼🌸🌼🌷");
-        foot.setTextSize(16);
-        foot.setGravity(Gravity.CENTER);
-        content.addView(foot, new LinearLayout.LayoutParams(-1, -2));
+        addCard(content, send);
+        addCard(content, center);
+        addCard(content, vset);
+        addCard(content, left);
+        addCard(content, disp);
+        LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
+        ml.setMargins(0, dp(10), 0, 0);
+        content.addView(modeBtn, ml);
 
         // ===== الخلفية: تدرج + فقاعات ملونة كتعطي عمق للزجاج =====
+        ScrollView sv = new ScrollView(this);
+        sv.setFillViewport(false);
+        sv.addView(content, new FrameLayout.LayoutParams(-1, -2));
         FrameLayout root = new FrameLayout(this);
         root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xFFFFF8EE, 0xFFF3E9D6}));
-        root.addView(content, new FrameLayout.LayoutParams(-1, -1));
+        root.addView(blob(0x66EC4899, 220, Gravity.TOP | Gravity.RIGHT, -60, 40, 40, 6000));
+        root.addView(blob(0x66F59E0B, 200, Gravity.CENTER_VERTICAL | Gravity.LEFT, -70, 0, 50, 7000));
+        root.addView(blob(0x6606B6D4, 240, Gravity.BOTTOM | Gravity.RIGHT, -60, 40, 40, 8000));
+        root.addView(sv, new FrameLayout.LayoutParams(-1, -1));
         root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         setContentView(root);
     }
@@ -707,7 +729,7 @@ public class SenderActivity extends Activity {
     }
 
     private void setSpeed(int v) {
-        sp.edit().putInt("s_spd", v).putBoolean("s_dirty", true).apply();
+        sp.edit().putInt("s_spd", v).putBoolean("s_dirty", true).commit();
         tSpd.setText(spdText());
         sendCmd("spd:" + v);
     }
@@ -839,7 +861,7 @@ public class SenderActivity extends Activity {
     private volatile boolean keepBusy;
     private final Runnable keep = new Runnable() {
         @Override public void run() {
-            ui.postDelayed(this, 10000);
+            ui.postDelayed(this, ip == null ? 3000 : 10000);
             if (keepBusy) return;
             keepBusy = true;
             new Thread(new Runnable() {
@@ -857,7 +879,7 @@ public class SenderActivity extends Activity {
                         if (f == null) f = discover(c, 1500);
                         if (f != null) {
                             ip = f;
-                            sp.edit().putString("ip", f).apply();
+                            sp.edit().putString("ip", f).commit();
                             setStatus("✅ متصل بـ TV Box (" + f + ")");
                             if (sp.getBoolean("s_dirty", false) || !pullLevels(f, c)) syncLevels();
                         } else if (host != null) {
@@ -874,19 +896,129 @@ public class SenderActivity extends Activity {
     };
 
     private void setStatus(final String s) {
-        ui.post(new Runnable() { @Override public void run() { status.setText(s); } });
+        ui.post(new Runnable() { @Override public void run() { status.setText(s); updateConnChip(s); } });
+    }
+
+    private Button connChip, ipChip, codeChip;
+
+    private void updateConnChip(String s) {
+        if (connChip == null || s == null) return;
+        if (s.contains("متصل بـ")) connChip.setText("🟢 متصل");
+        else if (s.startsWith("❌ ما لقيتش TV Box") || s.startsWith("❌ فقدت") || s.startsWith("❌ اضغط")) connChip.setText("🔴 اتصال");
+        else if (s.startsWith("⏳") || s.startsWith("كنقلب")) connChip.setText("🟡 كنقلب...");
+    }
+
+    private String spaced(String c) {
+        return c != null && c.length() == 8 ? c.substring(0, 4) + " " + c.substring(4) : c;
+    }
+    private String codeChipText() { return "🔑 " + spaced(sp.getString("paircode", Net.DEFAULT_CODE)); }
+    private String ipChipText() {
+        String m = sp.getString("manual_ip", "");
+        return (m == null || m.isEmpty()) ? "🌐 IP" : "🌐 " + m;
+    }
+
+    private void showLvl(String key, int v) {
+        List<TextView> l = lvlViews.get(key);
+        int[] rg = lvlRange.get(key);
+        if (l == null || rg == null) return;
+        for (TextView t : l) t.setText(v + "/" + rg[1]);
+    }
+
+    private void setWeight(View v, float w) {
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) v.getLayoutParams();
+        lp.weight = w;
+        v.setLayoutParams(lp);
+    }
+
+    // خانة صغيرة: كتتوسع ملي تضغط عليها، Enter كيحفظ وترجع صغيرة
+    private FrameLayout inlineChip(final Button chip, final EditText et, final Runnable onSave) {
+        final FrameLayout f = new FrameLayout(this);
+        f.addView(chip, new FrameLayout.LayoutParams(-1, -1));
+        et.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        et.setVisibility(View.GONE);
+        f.addView(et, new FrameLayout.LayoutParams(-1, -1));
+        final boolean[] editing = new boolean[1];
+        final Runnable close = new Runnable() {
+            @Override public void run() {
+                if (!editing[0]) return;
+                editing[0] = false;
+                try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(et.getWindowToken(), 0); } catch (Exception ignored) {}
+                et.clearFocus();
+                et.setVisibility(View.GONE);
+                chip.setVisibility(View.VISIBLE);
+                setWeight(f, 1f);
+                onSave.run();
+            }
+        };
+        chip.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                editing[0] = true;
+                chip.setVisibility(View.GONE);
+                et.setVisibility(View.VISIBLE);
+                setWeight(f, 3f);
+                et.requestFocus();
+                et.selectAll();
+                try { ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(et, InputMethodManager.SHOW_IMPLICIT); } catch (Exception ignored) {}
+            }
+        });
+        et.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView v, int actionId, KeyEvent e) {
+                if (actionId == EditorInfo.IME_ACTION_DONE
+                        || (e != null && e.getKeyCode() == KeyEvent.KEYCODE_ENTER && e.getAction() == KeyEvent.ACTION_DOWN)) {
+                    close.run();
+                    return true;
+                }
+                return false;
+            }
+        });
+        et.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override public void onFocusChange(View v, boolean has) { if (!has) close.run(); }
+        });
+        return f;
+    }
+
+    // كتابة الرقم مباشرة (الحجم، الحدة...) مع Enter
+    private void numDialog(final String key, String lab) {
+        final int[] rg = lvlRange.get(key);
+        if (rg == null) return;
+        final EditText e = new EditText(this);
+        e.setInputType(InputType.TYPE_CLASS_NUMBER);
+        e.setSingleLine(true);
+        e.setGravity(Gravity.CENTER);
+        e.setTextSize(22);
+        e.setText(String.valueOf(sp.getInt("s_" + key, lvlDef.get(key))));
+        e.setSelectAllOnFocus(true);
+        e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        b.setTitle(lab + "   (" + rg[0] + " ← " + rg[1] + ")");
+        b.setView(e);
+        final android.app.AlertDialog d = b.create();
+        final Runnable ok = new Runnable() {
+            @Override public void run() {
+                try { setLevel(key, Integer.parseInt(e.getText().toString().trim())); } catch (Exception ignored) {}
+                d.dismiss();
+            }
+        };
+        d.setButton(android.app.AlertDialog.BUTTON_POSITIVE, "✓ حفظ", new android.content.DialogInterface.OnClickListener() {
+            @Override public void onClick(android.content.DialogInterface di, int w) { ok.run(); }
+        });
+        e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView v, int actionId, KeyEvent ev) { ok.run(); return true; }
+        });
+        if (d.getWindow() != null) d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        d.show();
     }
 
     // ---------------- مستويات الضبط (كتتحفظ تلقائيا) ----------------
-    private final Map<String, TextView> lvlViews = new HashMap<String, TextView>();
+    private final Map<String, List<TextView>> lvlViews = new HashMap<String, List<TextView>>();
     private final Map<String, int[]> lvlRange = new HashMap<String, int[]>();
     private final Map<String, Integer> lvlDef = new HashMap<String, Integer>();
 
     private void setLevel(String key, int v) {
         int[] rg = lvlRange.get(key);
         v = Math.max(rg[0], Math.min(rg[1], v));
-        sp.edit().putInt("s_" + key, v).putBoolean("s_dirty", true).apply();
-        lvlViews.get(key).setText(v + "/" + rg[1]);
+        sp.edit().putInt("s_" + key, v).putBoolean("s_dirty", true).commit();
+        showLvl(key, v);
         sendCmd(key + ":" + v);
     }
 
@@ -910,30 +1042,37 @@ public class SenderActivity extends Activity {
         });
     }
 
-    private View levelCell(String lab, final String key, int min, int max, final int def) {
+    private View levelCell(final String lab, final String key, int min, int max, final int def) {
         lvlRange.put(key, new int[]{min, max});
         lvlDef.put(key, def);
         LinearLayout c = box(true);
-        c.setBackground(shape(0xE6FFFFFF, 0xFF93B4F5, 14, 1));
-        c.setPadding(dp(2), dp(1), dp(2), dp(2));
-        TextView lb = label(lab, 10, true);
-        c.addView(lb, new LinearLayout.LayoutParams(-1, -2));
+        c.setBackground(shape(0xCCFFFFFF, 0xFF93B4F5, 14, 1));
+        c.setPadding(dp(3), dp(2), dp(3), dp(3));
+        TextView lb = label(lab, 12, true);
+        autosize(lb, 8, 13);
+        c.addView(lb, new LinearLayout.LayoutParams(-1, 0, 0.8f));
         LinearLayout r = box(false);
         Button m = gbtn("−", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) - 1); }
         });
-        TextView val = label(sp.getInt("s_" + key, def) + "/" + max, 13, true);
+        TextView val = label(sp.getInt("s_" + key, def) + "/" + max, 15, true);
         val.setGravity(Gravity.CENTER);
-        lvlViews.put(key, val);
+        val.setBackground(shape(0xFFFFFFFF, 0xFF93B4F5, 10, 1));   // خانة كتابة: اضغط واكتب الرقم
+        val.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { numDialog(key, lab); }
+        });
+        List<TextView> l = lvlViews.get(key);
+        if (l == null) { l = new ArrayList<TextView>(); lvlViews.put(key, l); }
+        l.add(val);
         Button p = gbtn("+", C_BLUE, new View.OnClickListener() {
             @Override public void onClick(View v) { setLevel(key, sp.getInt("s_" + key, def) + 1); }
         });
         autosize(m, 14, 24);
         autosize(p, 14, 24);
         r.addView(hw(m, 1f));
-        r.addView(hw(val, 1.2f));
+        r.addView(hw(val, 1.4f));
         r.addView(hw(p, 1f));
-        c.addView(r, new LinearLayout.LayoutParams(-1, 0, 1f));
+        c.addView(r, new LinearLayout.LayoutParams(-1, 0, 1.4f));
         return c;
     }
 
@@ -1071,7 +1210,7 @@ public class SenderActivity extends Activity {
 
     private void flag(String cmd, boolean dirty) {
         if (cmd.indexOf(':') > 0 || "qh".equals(cmd) || "ql".equals(cmd))
-            sp.edit().putBoolean("s_dirty", dirty).apply();
+            sp.edit().putBoolean("s_dirty", dirty).commit();
     }
 
     private void autoSave(final EditText e, final String key) {
@@ -1080,7 +1219,7 @@ public class SenderActivity extends Activity {
             @Override public void onTextChanged(CharSequence t, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable t) {
                 String v = t.toString().trim();
-                sp.edit().putString(key, v).apply();
+                sp.edit().putString(key, v).commit();
                 if ("paircode".equals(key)) cmdCode = v;
             }
         });
@@ -1126,13 +1265,10 @@ public class SenderActivity extends Activity {
                 else if ("spd".equals(k)) ed.putInt("s_spd", v);
                 else if ("inv".equals(k)) ed.putInt("s_inv", v);
             }
-            ed.apply();
+            ed.commit();
             ui.post(new Runnable() {
                 @Override public void run() {
-                    for (String k : lvlRange.keySet()) {
-                        TextView tv = lvlViews.get(k);
-                        if (tv != null) tv.setText(sp.getInt("s_" + k, lvlDef.get(k)) + "/" + lvlRange.get(k)[1]);
-                    }
+                    for (String k : lvlRange.keySet()) showLvl(k, sp.getInt("s_" + k, lvlDef.get(k)));
                     glassOn = sp.getInt("s_glass", 1) == 1;
                     hq = sp.getBoolean("hq", true);
                     if (gBtn != null) gBtn.setText(glassText());
@@ -1150,7 +1286,7 @@ public class SenderActivity extends Activity {
     private String code() {
         String c = codeF.getText().toString().trim();
         cmdCode = c;
-        sp.edit().putString("paircode", c).apply();
+        sp.edit().putString("paircode", c).commit();
         return c;
     }
 
@@ -1170,7 +1306,7 @@ public class SenderActivity extends Activity {
                 }
                 if (found != null) {
                     ip = found;
-                    sp.edit().putString("ip", found).apply();
+                    sp.edit().putString("ip", found).commit();
                     setStatus("✅ متصل بـ TV Box (" + found + ")");
                     if (sp.getBoolean("s_dirty", false) || !pullLevels(found, c)) syncLevels();
                 } else {
@@ -1266,7 +1402,7 @@ public class SenderActivity extends Activity {
             if (autoRot) {
                 if (!can) {
                     if (!sp.getBoolean("rot_asked", false)) {
-                        sp.edit().putBoolean("rot_asked", true).apply();
+                        sp.edit().putBoolean("rot_asked", true).commit();
                         startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
                                 Uri.parse("package:" + getPackageName())));
                     }
@@ -1274,13 +1410,13 @@ public class SenderActivity extends Activity {
                 }
                 if (!sp.contains("rot_prev")) {
                     sp.edit().putInt("rot_prev", Settings.System.getInt(getContentResolver(),
-                            Settings.System.ACCELEROMETER_ROTATION, 0)).apply();
+                            Settings.System.ACCELEROMETER_ROTATION, 0)).commit();
                 }
                 Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 1);
             } else if (can && sp.contains("rot_prev")) {
                 Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION,
                         sp.getInt("rot_prev", 0));
-                sp.edit().remove("rot_prev").apply();
+                sp.edit().remove("rot_prev").commit();
             }
         } catch (Exception ignored) {}
     }

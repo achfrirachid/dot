@@ -107,6 +107,9 @@ public class ReceiverActivity extends Activity {
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
     private int lvlVdim = 6;
+    private int lvlMar = 4;   // هامش أمان للورقة (0-10): كيصغر الورقة شوية باش الحروف اللي فالحافة ما تتقطعش
+    private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
+    private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
     private View dimView;
     private LinearLayout vpanel;
     private boolean panelOff = false;
@@ -142,14 +145,14 @@ public class ReceiverActivity extends Activity {
                 | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                 | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
-        sp.edit().putBoolean("is_tv", true).apply();   // باش BootReceiver يعرف هذا هو TV Box
+        sp.edit().putBoolean("is_tv", true).commit();   // باش BootReceiver يعرف هذا هو TV Box
         code = sp.getString("paircode", Net.DEFAULT_CODE);
         // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
         if (!sp.getBoolean("def0v1", false)) {
             SharedPreferences.Editor me = sp.edit().putBoolean("def0v1", true);
             if (sp.getInt("l_txt", 0) == 1) me.putInt("l_txt", 0);
             if (sp.getInt("l_sha", 0) == 7) me.putInt("l_sha", 0);
-            me.apply();
+            me.commit();
         }
         lvlFit = sp.getInt("l_fit", 10);
         lvlBri = sp.getInt("l_bri", 5);
@@ -163,6 +166,8 @@ public class ReceiverActivity extends Activity {
         lvlSha = sp.getInt("l_sha", 0);
         lvlGam = sp.getInt("l_gam", 5);
         lvlVdim = sp.getInt("l_vdim", 6);
+        lvlIdim = sp.getInt("l_idim", 0);
+        lvlMar = sp.getInt("l_mar", 4);
         boostMb = sp.getInt("l_boost", 0);
         spd = sp.getInt("l_spd", 10);
         inv = sp.getInt("l_inv", 0);
@@ -197,7 +202,7 @@ public class ReceiverActivity extends Activity {
         try {
             SharedPreferences sp0 = getSharedPreferences("tvlink", MODE_PRIVATE);
             if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this) && !sp0.getBoolean("ov_asked", false)) {
-                sp0.edit().putBoolean("ov_asked", true).apply();
+                sp0.edit().putBoolean("ov_asked", true).commit();
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:" + getPackageName()));
                 startActivity(i);
@@ -316,7 +321,7 @@ public class ReceiverActivity extends Activity {
         bNew.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 code = newCode();
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
                 refreshInfo();
             }
         });
@@ -325,7 +330,7 @@ public class ReceiverActivity extends Activity {
         bDef.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 code = Net.DEFAULT_CODE;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
                 refreshInfo();
             }
         });
@@ -333,7 +338,7 @@ public class ReceiverActivity extends Activity {
         bMode.setText("تغيير الوضع");
         bMode.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").commit();
                 startActivity(new Intent(ReceiverActivity.this, MainActivity.class).putExtra("choose", true));
                 finish();
             }
@@ -421,6 +426,8 @@ public class ReceiverActivity extends Activity {
     private int lvlOf(String k) {
         if ("fit".equals(k)) return lvlFit;
         if ("vdim".equals(k)) return lvlVdim;
+        if ("idim".equals(k)) return lvlIdim;
+        if ("mar".equals(k)) return lvlMar;
         if ("bri".equals(k)) return lvlBri;
         if ("con".equals(k)) return lvlCon;
         if ("sat".equals(k)) return lvlSat;
@@ -543,7 +550,7 @@ public class ReceiverActivity extends Activity {
         ok.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 panelOff = true;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("v_paneloff", true).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("v_paneloff", true).commit();
                 vpanel.setVisibility(View.GONE);
                 root.removeCallbacks(panelHider);
                 Toast.makeText(ReceiverActivity.this, "تحفظات الإعدادات. اضغط على الشاشة باش تبان اللوحة", Toast.LENGTH_LONG).show();
@@ -573,52 +580,112 @@ public class ReceiverActivity extends Activity {
         return b;
     }
 
+    private LinearLayout.LayoutParams gap() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dpx(4), 0, dpx(4));
+        return lp;
+    }
+
+    private TextView sec(String t) {
+        TextView v = pTv(t, 16);
+        v.setTextColor(SOFT_CODE);
+        v.setTypeface(Typeface.DEFAULT_BOLD);
+        v.setPadding(0, dpx(10), 0, dpx(2));
+        return v;
+    }
+
     private void buildSettingsPanel() {
         spanel = new LinearLayout(this);
         spanel.setOrientation(LinearLayout.VERTICAL);
-        spanel.setBackgroundColor(Color.BLACK);
+        // خلفية غامقة بنفس ألوان التطبيق (باش الداتا شو ما يرسلش ضو قوي)
+        spanel.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0xFF0B0A1F, 0xFF14123A, 0xFF08302C}));
         spanel.setPadding(dpx(20), dpx(12), dpx(20), dpx(12));
         spanel.setClickable(true);
-        TextView title = pTv("\u2699 الإعدادات", 20);
+        TextView title = pTv("\u2699 الإعدادات (كلشي كيتحفظ تلقائيا حتى تبدلو)", 20);
+        title.setTextColor(SOFT_TXT);
         title.setGravity(Gravity.CENTER);
         spanel.addView(title);
 
         ScrollView sv = new ScrollView(this);
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
+
+        // 1) الصور والامتحانات وPDF (الأرقام باينة: 0..10)
+        body.addView(sec("\uD83D\uDCC4 الصور والامتحانات وPDF"));
+        body.addView(pRow("\uD83D\uDCD0 الحجم", "fit", true));
+        body.addView(pRow("\u2600 السطوع", "bri", true));
+        body.addView(pRow("\u25D0 التباين", "con", true));
+        body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
+        body.addView(pRow("\u2712 غلظة الكتابة", "txt", true));
+        body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
+        body.addView(pRow("\uD83C\uDF13 تعتيم الصور", "idim", true));
+        body.addView(pRow("\u2194 هامش الورقة", "mar", true));
+
+        sInv = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { levelCmd("inv:" + (inv == 1 ? 0 : 1)); }
+        });
+        sQual = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { control(quality == 2 ? "ql" : "qh"); refreshSettings(); }
+        });
+        body.addView(sInv, gap());
+        body.addView(sQual, gap());
+
+        // 2) الفيديو
+        body.addView(sec("\uD83C\uDFA5 الفيديو"));
+        body.addView(pRow("\u2600 سطوع الفيديو", "vbri", true));
+        body.addView(pRow("\u25D0 تباين الفيديو", "vcon", true));
+        body.addView(pRow("\uD83C\uDFA8 ألوان الفيديو", "vsat", true));
+        body.addView(pRow("\uD83C\uDF13 تعتيم البياض", "vdim", true));
+
+        // 3) عرض شاشة الهاتف
+        body.addView(sec("\uD83D\uDDA5 عرض شاشة الهاتف"));
+        body.addView(pRow("\uD83D\uDCA1 إضاءة الظلال", "gam", true));
+        sLive = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { control("lmode"); refreshSettings(); }
+        });
+        body.addView(sLive, gap());
+
+        // 4) النظام
+        body.addView(sec("\uD83D\uDD27 النظام"));
         sAuto = sBtn("", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
-                sp.edit().putBoolean("autostart", !sp.getBoolean("autostart", true)).apply();
+                sp.edit().putBoolean("autostart", !sp.getBoolean("autostart", true)).commit();
                 refreshSettings();
             }
+        });
+        sGlass = sBtn("", new View.OnClickListener() {
+            @Override public void onClick(View v) { levelCmd("glass:" + (glass == 1 ? 0 : 1)); }
         });
         Button sNewCode = sBtn("🔑 كود عشوائي جديد", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 code = newCode();
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
                 refreshInfo();
             }
         });
         Button sDefCode = sBtn("🔑 الكود الثابت " + Net.DEFAULT_CODE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 code = Net.DEFAULT_CODE;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
                 refreshInfo();
             }
         });
         Button sModeBtn = sBtn("🔁 تغيير الوضع", new View.OnClickListener() {
             @Override public void onClick(View v) {
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").commit();
                 startActivity(new Intent(ReceiverActivity.this, MainActivity.class).putExtra("choose", true));
                 finish();
             }
         });
-        body.addView(sAuto);
-        body.addView(sNewCode);
-        body.addView(sDefCode);
-        body.addView(sModeBtn);
-        darkBtn(sAuto); darkBtn(sNewCode); darkBtn(sDefCode); darkBtn(sModeBtn);
+        body.addView(sAuto, gap());
+        body.addView(sGlass, gap());
+        body.addView(sNewCode, gap());
+        body.addView(sDefCode, gap());
+        body.addView(sModeBtn, gap());
+        Button[] all = {sInv, sQual, sLive, sAuto, sGlass, sNewCode, sDefCode, sModeBtn};
+        for (Button x : all) darkBtn(x);
         sv.addView(body);
         spanel.addView(sv, new LinearLayout.LayoutParams(-1, 0, 1f));
 
@@ -626,7 +693,7 @@ public class ReceiverActivity extends Activity {
             @Override public void onClick(View v) { spanel.setVisibility(View.GONE); bNewRef.requestFocus(); }
         });
         darkBtn(close);
-        spanel.addView(close, new LinearLayout.LayoutParams(-1, -2));
+        spanel.addView(close, gap());
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -1);
         lp.setMargins(dpx(60), dpx(30), dpx(60), dpx(30));
         root.addView(spanel, lp);
@@ -640,13 +707,10 @@ public class ReceiverActivity extends Activity {
     private static final int SOFT_CODE = 0xFFFFD54F;
 
     private void darkBtn(Button b) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(0xFF1A1A1A);
-        g.setCornerRadius(dpx(12));
-        g.setStroke(dpx(2), SOFT_CODE);
-        b.setBackground(g);
+        b.setBackground(glassDrawable(0xFFFFFF, 0x2A, 0x12, 0xAAFFD54F, 14));
         b.setTextColor(SOFT_TXT);
         b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setAllCaps(false);
     }
 
     private void showSettings() {
@@ -700,8 +764,10 @@ public class ReceiverActivity extends Activity {
         if (sysDim != null) { if (lvlVdim <= 0) hideSysDim(); else sysDim.setAlpha(Math.min(0.8f, 0.08f * lvlVdim)); }
         if (dimView == null) return;
         boolean vid = (video != null && video.getVisibility() == View.VISIBLE) || (liveView != null && liveView.getVisibility() == View.VISIBLE);
-        boolean on = vid && idle != null && idle.getVisibility() != View.VISIBLE && lvlVdim > 0;   // التعتيم للفيديو وعرض الهاتف فقط، الامتحانات والصور كما هي
-        dimView.setAlpha(0.08f * lvlVdim);
+        boolean img = (image != null && image.getVisibility() == View.VISIBLE) || (multi != null && multi.getVisibility() == View.VISIBLE);
+        int lv = vid ? lvlVdim : (img ? lvlIdim : 0);   // الصور/PDF: 0 افتراضيا = كما هي بالضبط
+        boolean on = idle != null && idle.getVisibility() != View.VISIBLE && lv > 0;
+        dimView.setAlpha(Math.min(0.8f, 0.08f * lv));
         dimView.setVisibility(on ? View.VISIBLE : View.GONE);
     }
 
@@ -824,7 +890,7 @@ public class ReceiverActivity extends Activity {
                 reply(out, 200, "ok");
             } else if ("/levels".equals(p)) {
                 reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
-                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim
+                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",mar=" + lvlMar
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
@@ -936,6 +1002,7 @@ public class ReceiverActivity extends Activity {
         curType = type;
         examFull = examNext;
         examFresh = examFull;
+        contentLR = null;
         examNext = false;
         if (examFull && glassBg != null) glassBg.setVisibility(View.GONE);
         if (examFull) applyLevels();
@@ -954,12 +1021,15 @@ public class ReceiverActivity extends Activity {
             } else if ("image".equals(type)) {
                 final File imgF = f;
                 image.setVisibility(View.VISIBLE);
+                applyDim();
                 new Thread(new Runnable() {
                     @Override public void run() {
                         final Bitmap bm = decode(imgF);
+                        final float[] cf = examFull ? contentFrac(bm) : null;
                         runOnUiThread(new Runnable() {
                             @Override public void run() {
                                 if (curFile == imgF) {
+                                    contentLR = cf;
                                     image.setImageBitmap(bm);
                                     if (bm != null) examFill(bm.getWidth(), bm.getHeight());
                                 }
@@ -1041,15 +1111,64 @@ public class ReceiverActivity extends Activity {
     }
 
     // وضع الامتحان: الورقة كتملا عرض الداتا شو كامل (وكتبدا من الأعلى، والأسهم ▲▼ كتنزل فيها)
+    // كيقلب على أول وآخر عمود فيه كتابة (بلا الحواف البيضاء) باش ما يتقطع حتى حرف فاليسار ولا اليمين
+    private static float[] contentFrac(Bitmap b) {
+        if (b == null) return null;
+        try {
+            int w = b.getWidth(), h = b.getHeight();
+            int step = Math.max(1, Math.max(w, h) / 700);
+            int[] col = new int[w / step + 2];
+            int tot = 0;
+            for (int y = 0; y < h; y += step) {
+                for (int x = 0; x < w; x += step) {
+                    int p = b.getPixel(x, y);
+                    int l = ((p >> 16) & 0xFF) + ((p >> 8) & 0xFF) + (p & 0xFF);
+                    if (l < 3 * 170) { col[x / step]++; tot++; }
+                }
+            }
+            if (tot < 20) return null;
+            int first = -1, last = -1;
+            for (int i = 0; i < col.length; i++) if (col[i] >= 2) { if (first < 0) first = i; last = i; }
+            if (first < 0) return null;
+            float fl = Math.max(0f, (first * step - step) / (float) w);
+            float fr = Math.min(1f, ((last + 1) * step + step) / (float) w);
+            if (fr - fl < 0.3f) return null;
+            return new float[]{fl, fr};
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private float[] pdfContentFrac(PdfRenderer.Page pg) {
+        try {
+            int w = 700, h = Math.max(1, Math.round(700f * pg.getHeight() / pg.getWidth()));
+            Bitmap sm = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            sm.eraseColor(Color.WHITE);
+            pg.render(sm, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+            float[] r = contentFrac(sm);
+            sm.recycle();
+            return r;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    // وضع الامتحان: الكتابة (ماشي الورقة البيضاء) كتملا العرض بهامش أمان متساوي يمين ويسار،
+    // وكتتوسط الشاشة: حتى الحروف الملاصقة لحافة الورقة كتبان كاملة. والأسهم ▲▼ كتنزل فيها
     private void examFill(int bw, int bh) {
         if (!examFull || !examFresh || bw <= 0 || bh <= 0) return;
         int rw = root.getWidth(), rh = root.getHeight();
         if (rw <= 0 || rh <= 0) return;
         examFresh = false;
-        float s = Math.max(1f, Math.min(6f, (float) rw * bh / ((float) rh * bw)));
-        // الورقة كتملا العرض كامل، مع إزاحة صغيرة لليمين باش الكتابة اللي فالجهة اليسرى ما تتقطعش
-        if (s > 1.12f) { s *= 0.92f; panX = rw * 0.035f; } else panX = 0f;   // هامش أمان: الورقة كاملة تبان (حتى آخر الكتابة فاليسار)
+        float dw = Math.min((float) rw, (float) rh * bw / bh);   // عرض الورقة وهي كاملة فالشاشة
+        float m = 0.03f * lvlMar;                                // هامش الأمان (من 0 إلى 30% من العرض)
+        float fl = 0f, fr = 1f;
+        if (contentLR != null) { fl = contentLR[0]; fr = contentLR[1]; }
+        float fw = Math.max(0.3f, fr - fl);
+        float s = Math.max(1f, Math.min(6f, rw * (1f - m) / (fw * dw)));
         zoom = s;
+        float eff = s * fit;
+        panX = eff > 1f ? -((fl + fr) / 2f - 0.5f) * dw * eff : 0f;
         panY = (zoom * fit - 1f) * rh / 2f;
         applyZoom();
         if (pdf == null) image.refreshQuality();
@@ -1058,6 +1177,7 @@ public class ReceiverActivity extends Activity {
     private void renderPage() {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
+        if (examFull && examFresh) contentLR = pdfContentFrac(pg);
         examFill(pg.getWidth(), pg.getHeight());
         int rh = root.getHeight() > 0 ? root.getHeight() : 1080;
         int target = Math.min((int) (rh * Math.max(1f, zoom)), quality == 2 ? 3000 : 1400);
@@ -1078,6 +1198,7 @@ public class ReceiverActivity extends Activity {
         image.setImageBitmap(bm);
         image.setVisibility(View.VISIBLE);
         applyZoom();
+        applyDim();
     }
 
     private Bitmap decode(File f) {
@@ -1381,6 +1502,20 @@ public class ReceiverActivity extends Activity {
         String k = kv[0];
         if ("fit".equals(k)) { lvlFit = clamp(n, 1, 10); ed.putInt("l_fit", lvlFit); }
         else if ("vdim".equals(k)) { lvlVdim = clamp(n, 0, 10); ed.putInt("l_vdim", lvlVdim); }
+        else if ("idim".equals(k)) { lvlIdim = clamp(n, 0, 10); ed.putInt("l_idim", lvlIdim); }
+        else if ("mar".equals(k)) {
+            lvlMar = clamp(n, 0, 10);
+            ed.putInt("l_mar", lvlMar);
+            ed.commit();
+            refreshSettings();
+            if (examFull) {   // نعاودو نملاو الورقة بالهامش الجديد
+                resetZoom();
+                examFresh = true;
+                if (pdf != null) renderPage();
+                else if (image.getDrawable() != null) examFill(image.getDrawable().getIntrinsicWidth(), image.getDrawable().getIntrinsicHeight());
+            }
+            return;
+        }
         else if ("bri".equals(k)) { lvlBri = clamp(n, 1, 10); ed.putInt("l_bri", lvlBri); }
         else if ("con".equals(k)) { lvlCon = clamp(n, 1, 10); ed.putInt("l_con", lvlCon); }
         else if ("sat".equals(k)) { lvlSat = clamp(n, 1, 10); ed.putInt("l_sat", lvlSat); }
@@ -1391,7 +1526,7 @@ public class ReceiverActivity extends Activity {
             int old = lvlTxt;
             lvlTxt = clamp(n, 0, 10);
             ed.putInt("l_txt", lvlTxt);
-            ed.apply();
+            ed.commit();
             refreshSettings();
             if (old != lvlTxt) reload();
             return;
@@ -1399,14 +1534,14 @@ public class ReceiverActivity extends Activity {
         else if ("glass".equals(k)) {
             glass = n > 0 ? 1 : 0;
             ed.putInt("l_glass", glass);
-            ed.apply();
+            ed.commit();
             runOnUiThread(new Runnable() { @Override public void run() { applyGlass(); refreshSettings(); } });
             return;
         }
         else if ("spd".equals(k)) {
             spd = clamp(Math.round(n / 5f) * 5, 5, 20);
             ed.putInt("l_spd", spd);
-            ed.apply();
+            ed.commit();
             video.setSpeed(spd / 10f);
             hud("⏩ السرعة " + (spd / 10f) + "x");
             return;
@@ -1419,31 +1554,31 @@ public class ReceiverActivity extends Activity {
         else if ("inv".equals(k)) {
             inv = n > 0 ? 1 : 0;
             ed.putInt("l_inv", inv);
-            ed.apply();
+            ed.commit();
             applyLevels();
             refreshSettings();
             return;
         }
-        else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.apply(); refreshSettings(); return; }
+        else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.commit(); refreshSettings(); return; }
         else if ("sha".equals(k)) {
             int old = lvlSha;
             lvlSha = clamp(n, 0, 10);
             if (image != null) image.userSharp = lvlSha * 0.1f;
             ed.putInt("l_sha", lvlSha);
-            ed.apply();
+            ed.commit();
             refreshSettings();
             if (old != lvlSha && "image".equals(curType)) reload();
             return;
         }
         else return;
-        ed.apply();
+        ed.commit();
         applyLevels();
         refreshPanel();
         refreshSettings();
         // تغيير من الهاتف أثناء الفيديو: رسالة صغيرة كتبان 2 تواني
         String lab = "bri".equals(k) ? "☀ السطوع" : "con".equals(k) ? "◐ التباين" : "sat".equals(k) ? "🎨 الألوان"
                 : "vbri".equals(k) ? "☀ سطوع الفيديو" : "vcon".equals(k) ? "◐ تباين الفيديو" : "vsat".equals(k) ? "🎨 ألوان الفيديو"
-                : "vdim".equals(k) ? "🎥 التعتيم" : "📐 الحجم";
+                : "vdim".equals(k) ? "🎥 التعتيم" : "idim".equals(k) ? "🌓 تعتيم الصور" : "📐 الحجم";
         hud(lab + ": " + lvlOf(k) + "/10");
     }
 
@@ -1570,7 +1705,7 @@ public class ReceiverActivity extends Activity {
                 break;
             case "lmode":
                 liveMode = (liveMode + 1) % 3;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_live", liveMode).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_live", liveMode).commit();
                 applyLiveMode();
                 Toast.makeText(this, liveMode == 0 ? "🖥 ملء الشاشة (تمديد)"
                         : liveMode == 1 ? "🖥 تغطية (قص الحواف)" : "🖥 النسبة الأصلية", Toast.LENGTH_SHORT).show();
@@ -1592,17 +1727,17 @@ public class ReceiverActivity extends Activity {
                 break;
             case "qh":
                 quality = 2;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 2).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 2).commit();
                 reload();
                 break;
             case "ql":
                 quality = 1;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 1).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_quality", 1).commit();
                 reload();
                 break;
             case "vfill":
                 video.setFill(!video.fill);
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).apply();
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).commit();
                 break;
             case "zin":
                 zoom = Math.min(6f, Math.round((zoom + 0.5f) * 2f) / 2f); applyZoom();
@@ -1712,6 +1847,7 @@ public class ReceiverActivity extends Activity {
         idle.setVisibility(View.GONE); applyDim();
         image.setVisibility(View.GONE);
         multi.setVisibility(View.VISIBLE);
+        applyDim();
         curType = "multi";
         showing = true;
     }
@@ -1788,7 +1924,7 @@ public class ReceiverActivity extends Activity {
     }
 
     private void saveBoost() {
-        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_boost", boostMb).apply();
+        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putInt("l_boost", boostMb).commit();
     }
 
     // تضخيم إضافي للصوت (للفيديو) فوق أقصى صوت النظام

@@ -99,17 +99,27 @@ public class ScreenService extends Service {
     private void startForegroundNotif() {
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(new NotificationChannel("tvlink", "TV Link", NotificationManager.IMPORTANCE_LOW));
+            try { nm.deleteNotificationChannel("tvlink"); } catch (Exception ignored) {}
+            NotificationChannel ch = new NotificationChannel("tvlink2", "TV Link (صامت)", NotificationManager.IMPORTANCE_MIN);
+            ch.setShowBadge(false);
+            ch.setSound(null, null);
+            ch.enableVibration(false);
+            ch.setLockscreenVisibility(Notification.VISIBILITY_SECRET);
+            nm.createNotificationChannel(ch);
         }
         Intent stop = new Intent(this, ScreenService.class).setAction("stop");
         PendingIntent pi = PendingIntent.getService(this, 1, stop,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
-                ? new Notification.Builder(this, "tvlink") : new Notification.Builder(this);
+                ? new Notification.Builder(this, "tvlink2") : new Notification.Builder(this);
         b.setContentTitle("TV Link")
                 .setContentText("عرض الشاشة على TV Box. اضغط للإيقاف")
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
-                .setContentIntent(pi);
+                .setContentIntent(pi)
+                .setOngoing(true)
+                .setShowWhen(false)
+                .setVisibility(Notification.VISIBILITY_SECRET);
+        if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_MIN);
         Notification n = b.build();
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);

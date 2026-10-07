@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
         bt.setTextSize(20);
         bt.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                sp.edit().putString("mode", mode).apply();
+                sp.edit().putString("mode", mode).commit();
                 go(mode);
             }
         });
@@ -59,7 +59,7 @@ public class MainActivity extends Activity {
     }
 
     private void go(String mode) {
-        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("mode", mode).apply();
+        getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("mode", mode).commit();
         startActivity(new Intent(this, "tv".equals(mode) ? ReceiverActivity.class : SenderActivity.class));
         finish();
     }
