@@ -15,6 +15,46 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - name: Generate app icon (light blue)
+        run: |
+          pip install pillow
+          M=$(find . -name AndroidManifest.xml -not -path "*/build/*" | head -1)
+          RES="$(dirname "$M")/res"
+          echo "manifest: $M  res: $RES"
+          cat > /tmp/gen_icons.py <<'PYEOF'
+          import os, sys
+          from PIL import Image, ImageDraw
+          res = sys.argv[1]
+          S = 1024
+          im = Image.new("RGB", (S, S)); px = im.load()
+          top, bot = (166, 224, 255), (56, 170, 240)
+          for y in range(S):
+              t = y / (S - 1)
+              c = tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3))
+              for x in range(S): px[x, y] = c
+          d = ImageDraw.Draw(im, "RGBA")
+          d.rounded_rectangle((170, 250, 854, 690), 70, fill=(255, 255, 255, 255))
+          d.rounded_rectangle((220, 300, 804, 640), 40, fill=(21, 101, 192, 255))
+          d.rounded_rectangle((440, 690, 584, 760), 20, fill=(255, 255, 255, 255))
+          d.rounded_rectangle((330, 750, 694, 800), 25, fill=(255, 255, 255, 255))
+          d.polygon([(470, 400), (470, 540), (590, 470)], fill=(255, 255, 255, 255))
+          for r, a in ((80, 255), (130, 200)):
+              d.arc((640 - r, 470 - r, 640 + r, 470 + r), -50, 50, fill=(255, 255, 255, a), width=16)
+          for k, v in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+              dd = f"{res}/mipmap-{k}"; os.makedirs(dd, exist_ok=True)
+              sq = im.resize((v, v), Image.LANCZOS)
+              for name, shape in (("ic_launcher", "rr"), ("ic_launcher_round", "o")):
+                  m = Image.new("L", (v * 4, v * 4), 0); md = ImageDraw.Draw(m)
+                  if shape == "rr": md.rounded_rectangle((0, 0, v * 4 - 1, v * 4 - 1), int(v * 0.22) * 4, fill=255)
+                  else: md.ellipse((0, 0, v * 4 - 1, v * 4 - 1), fill=255)
+                  a = sq.convert("RGBA"); a.putalpha(m.resize((v, v), Image.LANCZOS)); a.save(f"{dd}/{name}.png")
+          os.makedirs(f"{res}/drawable-xhdpi", exist_ok=True)
+          bn = Image.new("RGB", (640, 360), (80, 178, 242)); bn.paste(im.resize((300, 300), Image.LANCZOS), (170, 30))
+          bn.save(f"{res}/drawable-xhdpi/banner.png")
+
+          PYEOF
+          python3 /tmp/gen_icons.py "$RES"
+          ls -R "$RES" | head -30
       - run: gradle assembleDebug --no-daemon
       - run: find /tmp/tvlink-build -name "*.apk"
       - uses: actions/upload-artifact@v4
