@@ -110,6 +110,10 @@ public class ReceiverActivity extends Activity {
     private int lvlMar = 4;   // هامش أمان للورقة (0-10): كيصغر الورقة شوية باش الحروف اللي فالحافة ما تتقطعش
     private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
     private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
+    // تخفيف البياض (0-10): كيلين غير الأبيض/الفاتح بزاف (ضوء الداتا شو) والكتابة السوداء والألوان كيبقاو كيف هوما
+    private volatile int lvlWht = 5;
+    private final int[] whtLut = new int[256];   // معامل (x256) حسب درجة البياض
+    private int whtLutFor = -1;
     private View dimView;
     private LinearLayout vpanel;
     private boolean panelOff = false;
@@ -167,6 +171,7 @@ public class ReceiverActivity extends Activity {
         lvlGam = sp.getInt("l_gam", 5);
         lvlVdim = sp.getInt("l_vdim", 6);
         lvlIdim = sp.getInt("l_idim", 0);
+        lvlWht = sp.getInt("l_wht", 5);
         lvlMar = sp.getInt("l_mar", 4);
         boostMb = sp.getInt("l_boost", 0);
         spd = sp.getInt("l_spd", 10);
@@ -316,26 +321,9 @@ public class ReceiverActivity extends Activity {
         codeView.setTextSize(72);
         codeView.setGravity(Gravity.CENTER);
 
-        Button bNew = new Button(this);
-        bNew.setText("كود عشوائي جديد");
-        bNew.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                code = newCode();
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
-                refreshInfo();
-            }
-        });
-        Button bDef = new Button(this);
-        bDef.setText("الكود الثابت " + Net.DEFAULT_CODE);
-        bDef.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                code = Net.DEFAULT_CODE;
-                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
-                refreshInfo();
-            }
-        });
-        Button bMode = new Button(this);
-        bMode.setText("تغيير الوضع");
+        // الواجهة الأولى: 1) تغيير الوضع  2) الكود  3) تغيير الكود فقط
+        final Button bMode = new Button(this);
+        bMode.setText("🔁 تغيير الوضع");
         bMode.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().remove("mode").commit();
@@ -343,16 +331,29 @@ public class ReceiverActivity extends Activity {
                 finish();
             }
         });
+        darkBtn(bMode);
+        Button bCode = new Button(this);
+        bCode.setText("🔑 تغيير الكود");
+        bCode.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                // ضغطة: كود عشوائي جديد، وضغطة أخرى: رجوع للكود الثابت
+                code = Net.DEFAULT_CODE.equals(code) ? newCode() : Net.DEFAULT_CODE;
+                getSharedPreferences("tvlink", MODE_PRIVATE).edit().putString("paircode", code).commit();
+                refreshInfo();
+            }
+        });
+        darkBtn(bCode);
+        idle.addView(bMode);
         idle.addView(info);
         idle.addView(codeView);
-        Button bSet = new Button(this);
-        bSet.setText("\u2699 الإعدادات");
-        bSet.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showSettings(); }
-        });
-        darkBtn(bSet);
-        bNewRef = bSet;
-        idle.addView(bSet);
+        hint = new TextView(this);
+        hint.setTextColor(SOFT_TXT);
+        hint.setTypeface(Typeface.DEFAULT_BOLD);
+        hint.setTextSize(24);
+        hint.setGravity(Gravity.CENTER);
+        idle.addView(hint);
+        idle.addView(bCode);
+        bNewRef = bMode;
         idle.setBackgroundColor(Color.BLACK);
         root.addView(idle, new FrameLayout.LayoutParams(-1, -1));
         buildVideoPanel();
@@ -372,7 +373,7 @@ public class ReceiverActivity extends Activity {
             }
         });
         setContentView(root);
-        bSet.requestFocus();
+        bNewRef.requestFocus();
     }
 
     // ---------------- لوحة ضبط الفيديو (كتبان وحدها فوق الفيديو) ----------------
@@ -427,6 +428,7 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) return lvlFit;
         if ("vdim".equals(k)) return lvlVdim;
         if ("idim".equals(k)) return lvlIdim;
+        if ("wht".equals(k)) return lvlWht;
         if ("mar".equals(k)) return lvlMar;
         if ("bri".equals(k)) return lvlBri;
         if ("con".equals(k)) return lvlCon;
@@ -619,6 +621,7 @@ public class ReceiverActivity extends Activity {
         body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
         body.addView(pRow("\u2712 غلظة الكتابة", "txt", true));
         body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
+        body.addView(pRow("\uD83D\uDD05 تخفيف البياض", "wht", true));
         body.addView(pRow("\uD83C\uDF13 تعتيم الصور", "idim", true));
         body.addView(pRow("\u2194 هامش الورقة", "mar", true));
 
@@ -890,7 +893,7 @@ public class ReceiverActivity extends Activity {
                 reply(out, 200, "ok");
             } else if ("/levels".equals(p)) {
                 reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
-                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",mar=" + lvlMar
+                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wht=" + lvlWht + ",mar=" + lvlMar
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
@@ -1194,7 +1197,7 @@ public class ReceiverActivity extends Activity {
             if (sm != bm) bm.recycle();
             bm = sm;
         }
-        bm = thicken(bm);
+        bm = tameWhite(thicken(bm));
         image.setImageBitmap(bm);
         image.setVisibility(View.VISIBLE);
         applyZoom();
@@ -1221,7 +1224,7 @@ public class ReceiverActivity extends Activity {
             m.postRotate(deg);
             bm = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
         }
-        return thicken(examFull ? upscaleForScreen(bm) : fitBitmap(bm));
+        return tameWhite(thicken(examFull ? upscaleForScreen(bm) : fitBitmap(bm)));
     }
 
     // وضع الامتحان: كنكبرو الصورة مسبقا بجودة bicubic (بلا ما نصغرو ولا نشوشو) باش الكتابة تبقى نقية
@@ -1503,6 +1506,15 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) { lvlFit = clamp(n, 1, 10); ed.putInt("l_fit", lvlFit); }
         else if ("vdim".equals(k)) { lvlVdim = clamp(n, 0, 10); ed.putInt("l_vdim", lvlVdim); }
         else if ("idim".equals(k)) { lvlIdim = clamp(n, 0, 10); ed.putInt("l_idim", lvlIdim); }
+        else if ("wht".equals(k)) {
+            int old = lvlWht;
+            lvlWht = clamp(n, 0, 10);
+            ed.putInt("l_wht", lvlWht);
+            ed.commit();
+            refreshSettings();
+            if (old != lvlWht && curType != null && !"stream".equals(curType)) reload();
+            return;
+        }
         else if ("mar".equals(k)) {
             lvlMar = clamp(n, 0, 10);
             ed.putInt("l_mar", lvlMar);
@@ -1842,7 +1854,7 @@ public class ReceiverActivity extends Activity {
             if (i > 0) lp.leftMargin = 4;
             multi.addView(v, lp);
             v.setMode(FillImageView.FIT);
-            if (bm != null) v.setImageBitmap(thicken(bm));
+            if (bm != null) v.setImageBitmap(tameWhite(thicken(bm)));
         }
         idle.setVisibility(View.GONE); applyDim();
         image.setVisibility(View.GONE);
@@ -1986,13 +1998,61 @@ public class ReceiverActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    // تخفيف البياض: كيلين غير البكسلات الفاتحة (الورقة البيضاء) بدون ما يمس الأسود ولا الألوان الحقيقية
+    // درجة البياض = أصغر قناة (RGB). الأخضر/الأحمر/الوجوه عندها قناة صغيرة => ما كيتبدلوش
+    private void buildWhtLut() {
+        if (whtLutFor == lvlWht) return;
+        float cap = 0.05f * lvlWht;   // 0 = بلا تغيير ، 10 = الأبيض يولي 50%
+        for (int w = 0; w < 256; w++) {
+            float t = (w - 140f) / 115f;
+            t = Math.max(0f, Math.min(1f, t));
+            t = t * t * (3f - 2f * t);   // smoothstep
+            whtLut[w] = Math.round(256f * (1f - cap * t));
+        }
+        whtLutFor = lvlWht;
+    }
+
+    private static int whtPix(int p, int[] L) {
+        int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+        int m = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        int f = L[m];
+        if (f >= 256) return p;
+        return (p & 0xFF000000) | (((r * f) >> 8) << 16) | (((g * f) >> 8) << 8) | ((b * f) >> 8);
+    }
+
+    // للصور/PDF/الأوراق: كيشتغل على شرائح باش ما ياكلش الذاكرة. وضع السبورة (inv) كيقلب الألوان بوحدو
+    private Bitmap tameWhite(Bitmap bm) {
+        if (bm == null || lvlWht <= 0 || inv == 1) return bm;
+        try {
+            buildWhtLut();
+            Bitmap res = bm.isMutable() && bm.getConfig() == Bitmap.Config.ARGB_8888 ? bm : bm.copy(Bitmap.Config.ARGB_8888, true);
+            if (res == null) return bm;
+            int w = res.getWidth(), h = res.getHeight();
+            int strip = Math.max(1, Math.min(h, 400000 / Math.max(1, w)));
+            int[] px = new int[w * strip];
+            final int[] L = whtLut;
+            for (int y = 0; y < h; y += strip) {
+                int hh = Math.min(strip, h - y);
+                res.getPixels(px, 0, w, 0, y, w, hh);
+                for (int i = 0; i < w * hh; i++) px[i] = whtPix(px[i], L);
+                res.setPixels(px, 0, w, 0, y, w, hh);
+            }
+            if (res != bm) bm.recycle();
+            return res;
+        } catch (Throwable t) {
+            return bm;
+        }
+    }
+
     // كيرفع الظلال والألوان الغامقة (الوجوه، اليدين، الأحمر) باش تبان بحال اليوتيوب فالداتا شو
     private Bitmap applyGamma(Bitmap b) {
         int g = lvlGam;
-        if (g <= 0 || b == null) return b;
+        int wt = lvlWht;
+        if ((g <= 0 && wt <= 0) || b == null) return b;
         try {
+            buildWhtLut();
             if (gamLutFor != g) {
-                double gm = 1.0 - 0.05 * g;
+                double gm = 1.0 - 0.05 * Math.max(0, g);
                 for (int i = 0; i < 256; i++) gamLut[i] = (int) Math.round(255.0 * Math.pow(i / 255.0, gm));
                 gamLutFor = g;
             }
@@ -2001,9 +2061,11 @@ public class ReceiverActivity extends Activity {
             int[] px = gamPx;
             b.getPixels(px, 0, w, 0, 0, w, h);
             final int[] L = gamLut;
+            final int[] WL = whtLut;
             for (int i = 0; i < px.length; i++) {
                 int p = px[i];
-                px[i] = 0xFF000000 | (L[(p >> 16) & 0xFF] << 16) | (L[(p >> 8) & 0xFF] << 8) | L[p & 0xFF];
+                p = 0xFF000000 | (L[(p >> 16) & 0xFF] << 16) | (L[(p >> 8) & 0xFF] << 8) | L[p & 0xFF];
+                px[i] = whtPix(p, WL);
             }
             Bitmap res = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
             if (res != b) b.recycle();

@@ -587,7 +587,7 @@ public class SenderActivity extends Activity {
         left.addView(fx(rowOf(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5),
                 levelCell("🌓 تعتيم الصور", "idim", 0, 10, 0)), 72));
         left.addView(fx(rowOf(levelCell("↔ هامش الورقة (حروف اليسار)", "mar", 0, 10, 4),
-                new View(this)), 72));
+                levelCell("🔅 تخفيف البياض", "wht", 0, 10, 5)), 72));
         left.addView(fx(rowOf(
                 gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
                     @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
@@ -598,7 +598,7 @@ public class SenderActivity extends Activity {
                 gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         preset(10, 5, 5, 5, 0, 0);
-                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0);
+                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wht", 5);
                         setLevel("vbri", 5); setLevel("vcon", 5); setLevel("vsat", 5);
                     }
                 })), 56));
