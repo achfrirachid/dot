@@ -730,6 +730,14 @@ public class SenderActivity extends Activity {
         r1.addView(seek, new LinearLayout.LayoutParams(0, -2, 1f));
         r1.addView(tDur, new LinearLayout.LayoutParams(dp(46), -2));
         vbar.addView(r1, new LinearLayout.LayoutParams(-1, dp(36)));
+        final LinearLayout r3 = new LinearLayout(this) {
+            @Override public boolean dispatchTouchEvent(MotionEvent e) {
+                if (e.getAction() == MotionEvent.ACTION_UP) scheduleR3Hide(this);
+                return super.dispatchTouchEvent(e);
+            }
+        };
+        r3.setOrientation(LinearLayout.HORIZONTAL);
+        r3.setVisibility(View.GONE);   // كتبان بزر 🎨 وكتخبى بعد 2 تواني
         LinearLayout r2 = box(false);
         r2.addView(hw(gbtn("⏪ 10", C_BLUE, ctl("back")), 1f));
         r2.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 1f));
@@ -744,17 +752,29 @@ public class SenderActivity extends Activity {
         r2.addView(hw(gbtn("+", C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) { stepSpeed(1); }
         }), 0.8f));
+        r2.addView(hw(gbtn("🎨", C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                r3.setVisibility(r3.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                scheduleR3Hide(r3);
+            }
+        }), 0.8f));
         r2.addView(hw(gbtn("⏹", C_RED, new View.OnClickListener() {
             @Override public void onClick(View v) { hideVideoBar(); sendCmd("stop"); }
         }), 0.8f));
         vbar.addView(r2, new LinearLayout.LayoutParams(-1, dp(44)));
         // ألوان خاصة بالفيديو (منفصلة عن الصور والامتحانات)
-        LinearLayout r3 = box(false);
         r3.addView(hw(levelCell("☀️ سطوع الفيديو", "vbri", 1, 10, 5), 1f));
         r3.addView(hw(levelCell("◐ تباين الفيديو", "vcon", 1, 10, 5), 1f));
         r3.addView(hw(levelCell("🎨 ألوان الفيديو", "vsat", 1, 10, 5), 1f));
         vbar.addView(r3, new LinearLayout.LayoutParams(-1, dp(60)));
         return vbar;
+    }
+
+    private Runnable r3Hider;
+    private void scheduleR3Hide(final View r3) {
+        if (r3Hider != null) r3.removeCallbacks(r3Hider);
+        r3Hider = new Runnable() { @Override public void run() { r3.setVisibility(View.GONE); } };
+        r3.postDelayed(r3Hider, 2000);
     }
 
     private void showVideoBar() {

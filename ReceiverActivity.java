@@ -139,6 +139,7 @@ public class ReceiverActivity extends Activity {
         getWindow().setFormat(PixelFormat.RGBA_8888);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         SharedPreferences sp = getSharedPreferences("tvlink", MODE_PRIVATE);
+        sp.edit().putBoolean("is_tv", true).apply();   // باش BootReceiver يعرف هذا هو TV Box
         code = sp.getString("paircode", Net.DEFAULT_CODE);
         // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
         if (!sp.getBoolean("def0v1", false)) {
@@ -1213,6 +1214,8 @@ public class ReceiverActivity extends Activity {
 
     private Bitmap fitBitmap(Bitmap bm) {
         if (bm == null || root.getWidth() == 0 || root.getHeight() == 0) return bm;
+        // الجودة الأصلية: بلا تصغير مسبق (FillImageView كيصغر مرة وحدة بجودة عالية). كتبقى هكذا حتى تغير أنت الغلظة/الحدة
+        if (quality == 2 && lvlTxt <= 0 && lvlSha <= 0) return bm;
         float s = Math.min(root.getWidth() * 1.6f / bm.getWidth(), root.getHeight() * 1.6f / bm.getHeight());
         if (s >= 1f) return bm;
         Bitmap o = Bitmap.createScaledBitmap(bm, Math.max(1, (int) (bm.getWidth() * s)),
