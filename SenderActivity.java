@@ -81,7 +81,7 @@ public class SenderActivity extends Activity {
         super.onCreate(b);
         sp = getSharedPreferences("tvlink", MODE_PRIVATE);
         ip = sp.getString("ip", null);
-        mlevel = sp.getInt("mlevel2", 2);
+        mlevel = sp.getInt("mlevel3", 2);
         compat = sp.getBoolean("compat", false);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
@@ -587,7 +587,7 @@ public class SenderActivity extends Activity {
         left.addView(fx(rowOf(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5),
                 levelCell("🌓 تعتيم الصور", "idim", 0, 10, 0)), 72));
         left.addView(fx(rowOf(levelCell("↔ هامش الورقة (حروف اليسار)", "mar", 0, 10, 4),
-                levelCell("🔅 تخفيف البياض", "wht", 0, 10, 5)), 72));
+                levelCell("🔅 تخفيف البياض", "wh2", 0, 10, 8)), 72));
         left.addView(fx(rowOf(
                 gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
                     @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
@@ -598,7 +598,7 @@ public class SenderActivity extends Activity {
                 gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         preset(10, 5, 5, 5, 0, 0);
-                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wht", 5);
+                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wh2", 8);
                         setLevel("vbri", 5); setLevel("vcon", 5); setLevel("vsat", 5);
                     }
                 })), 56));
@@ -624,7 +624,7 @@ public class SenderActivity extends Activity {
         mBtn = gbtn(levelText(), C_AMBER, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 mlevel = (mlevel + 1) % 4;
-                sp.edit().putInt("mlevel2", mlevel).commit();
+                sp.edit().putInt("mlevel3", mlevel).commit();
                 mBtn.setText(levelText());
                 try { startService(new Intent(SenderActivity.this, ScreenService.class)
                         .setAction("level").putExtra("level", mlevel)); } catch (Exception ignored) {}

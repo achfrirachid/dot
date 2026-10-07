@@ -174,12 +174,12 @@ public class ScreenService extends Service {
             ((WindowManager) getSystemService(WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(dm);
             dpi = dm.densityDpi;
             int longSide = level == 0 ? 854 : level == 1 ? 1280 : level == 2 ? 1920 : 2560;
-            if (compat && longSide > 1280) longSide = 1280;
+            if (compat && longSide > 1920) longSide = 1920;
             float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            baseJq = level == 0 ? 70 : level == 1 ? 80 : level == 2 ? 85 : 90;
+            baseJq = level == 0 ? 80 : level == 1 ? 88 : level == 2 ? 92 : 95;
             jq = curJq = baseJq;
             extraWait = 0;
             lastSum = 0;
@@ -266,7 +266,7 @@ public class ScreenService extends Service {
             // تكيف تلقائي: إلا الشبكة بطيئة كنخفضو الجودة والسرعة بلا ما يتبلوكا، وإلا رجعات سريعة كنرجعو
             long took = lastSent - t0;
             if (took > 150) {
-                curJq = Math.max(50, curJq - 8);
+                curJq = Math.max(78, curJq - 4);
                 extraWait = Math.min(120, extraWait + 15);
             } else if (took < 40) {
                 curJq = Math.min(baseJq, curJq + 2);

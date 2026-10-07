@@ -111,8 +111,8 @@ public class ReceiverActivity extends Activity {
     private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
     private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
     // تخفيف البياض (0-10): كيلين غير الأبيض/الفاتح بزاف (ضوء الداتا شو) والكتابة السوداء والألوان كيبقاو كيف هوما
-    private volatile int lvlWht = 5;
-    private final int[] whtLut = new int[256];   // معامل (x256) حسب درجة البياض
+    private volatile int lvlWht = 8;
+    private final int[] whtLut = new int[512];   // معامل (x256) حسب درجة البياض
     private int whtLutFor = -1;
     private View dimView;
     private LinearLayout vpanel;
@@ -171,7 +171,7 @@ public class ReceiverActivity extends Activity {
         lvlGam = sp.getInt("l_gam", 5);
         lvlVdim = sp.getInt("l_vdim", 6);
         lvlIdim = sp.getInt("l_idim", 0);
-        lvlWht = sp.getInt("l_wht", 5);
+        lvlWht = sp.getInt("l_wh2", 8);
         lvlMar = sp.getInt("l_mar", 4);
         boostMb = sp.getInt("l_boost", 0);
         spd = sp.getInt("l_spd", 10);
@@ -428,7 +428,7 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) return lvlFit;
         if ("vdim".equals(k)) return lvlVdim;
         if ("idim".equals(k)) return lvlIdim;
-        if ("wht".equals(k)) return lvlWht;
+        if ("wh2".equals(k)) return lvlWht;
         if ("mar".equals(k)) return lvlMar;
         if ("bri".equals(k)) return lvlBri;
         if ("con".equals(k)) return lvlCon;
@@ -621,7 +621,7 @@ public class ReceiverActivity extends Activity {
         body.addView(pRow("\uD83C\uDFA8 الألوان", "sat", true));
         body.addView(pRow("\u2712 غلظة الكتابة", "txt", true));
         body.addView(pRow("\uD83D\uDD0E حدة الصورة", "sha", true));
-        body.addView(pRow("\uD83D\uDD05 تخفيف البياض", "wht", true));
+        body.addView(pRow("\uD83D\uDD05 تخفيف البياض", "wh2", true));
         body.addView(pRow("\uD83C\uDF13 تعتيم الصور", "idim", true));
         body.addView(pRow("\u2194 هامش الورقة", "mar", true));
 
@@ -893,7 +893,7 @@ public class ReceiverActivity extends Activity {
                 reply(out, 200, "ok");
             } else if ("/levels".equals(p)) {
                 reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
-                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wht=" + lvlWht + ",mar=" + lvlMar
+                        + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wh2=" + lvlWht + ",mar=" + lvlMar
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
@@ -1047,13 +1047,13 @@ public class ReceiverActivity extends Activity {
                     @Override public void onPrepared(MediaPlayer mp) {
                         if (mp.getVideoWidth() <= 0 || mp.getVideoHeight() <= 0) {
                             stopMedia();
-                            hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 720p أو أقل");
+                            hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 1080p");
                             return;
                         }
                         try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                         video.start(); applyBoost();
                         Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
-                                + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1280 ? "  ⚠ ثقيل: حمل 720p H.264" : ""), Toast.LENGTH_LONG).show();
+                                + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1920 ? "  ⚠ ثقيل: حمل 1080p H.264" : ""), Toast.LENGTH_LONG).show();
                     }
                 });
                 video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
@@ -1090,13 +1090,13 @@ public class ReceiverActivity extends Activity {
                 @Override public void onPrepared(MediaPlayer mp) {
                     if (mp.getVideoWidth() <= 0 || mp.getVideoHeight() <= 0) {
                         stopMedia();
-                        hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 720p أو أقل");
+                        hintView().setText("❌ الصورة ما مدعومةش فـ TV Box (غالباً VP9 / AV1 / WebM)\nنزل الفيديو MP4 (H.264) بجودة 1080p");
                         return;
                     }
                     try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
                     video.start(); applyBoost();
                     Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
-                            + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1280 ? "  ⚠ ثقيل: حمل 720p H.264" : ""), Toast.LENGTH_LONG).show();
+                            + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1920 ? "  ⚠ ثقيل: حمل 1080p H.264" : ""), Toast.LENGTH_LONG).show();
                 }
             });
             video.setOnErrorListener(new MediaPlayer.OnErrorListener() {
@@ -1506,10 +1506,10 @@ public class ReceiverActivity extends Activity {
         if ("fit".equals(k)) { lvlFit = clamp(n, 1, 10); ed.putInt("l_fit", lvlFit); }
         else if ("vdim".equals(k)) { lvlVdim = clamp(n, 0, 10); ed.putInt("l_vdim", lvlVdim); }
         else if ("idim".equals(k)) { lvlIdim = clamp(n, 0, 10); ed.putInt("l_idim", lvlIdim); }
-        else if ("wht".equals(k)) {
+        else if ("wh2".equals(k)) {
             int old = lvlWht;
             lvlWht = clamp(n, 0, 10);
-            ed.putInt("l_wht", lvlWht);
+            ed.putInt("l_wh2", lvlWht);
             ed.commit();
             refreshSettings();
             if (old != lvlWht && curType != null && !"stream".equals(curType)) reload();
@@ -2002,12 +2002,17 @@ public class ReceiverActivity extends Activity {
     // درجة البياض = أصغر قناة (RGB). الأخضر/الأحمر/الوجوه عندها قناة صغيرة => ما كيتبدلوش
     private void buildWhtLut() {
         if (whtLutFor == lvlWht) return;
-        float cap = 0.05f * lvlWht;   // 0 = بلا تغيير ، 10 = الأبيض يولي 50%
+        float cap = 0.055f * lvlWht;   // تخفيف الأبيض: 0 = بلا تغيير ، 10 = الأبيض يولي 45%
+        float ink = 0.035f * lvlWht;   // تغميق الحبر (الكتابة الباهتة): الأسود كيزيد صفاء
         for (int w = 0; w < 256; w++) {
-            float t = (w - 140f) / 115f;
+            float t = (w - 110f) / 145f;
             t = Math.max(0f, Math.min(1f, t));
-            t = t * t * (3f - 2f * t);   // smoothstep
+            t = t * t * (3f - 2f * t);
             whtLut[w] = Math.round(256f * (1f - cap * t));
+            float u = (w - 40f) / 110f;
+            u = Math.max(0f, Math.min(1f, u));
+            u = u * u * (3f - 2f * u);
+            whtLut[256 + w] = Math.round(256f * (1f - ink * (1f - u)));
         }
         whtLutFor = lvlWht;
     }
@@ -2015,7 +2020,8 @@ public class ReceiverActivity extends Activity {
     private static int whtPix(int p, int[] L) {
         int r = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
         int m = r < g ? (r < b ? r : b) : (g < b ? g : b);
-        int f = L[m];
+        int M = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        int f = (L[m] * L[256 + M]) >> 8;
         if (f >= 256) return p;
         return (p & 0xFF000000) | (((r * f) >> 8) << 16) | (((g * f) >> 8) << 8) | ((b * f) >> 8);
     }
