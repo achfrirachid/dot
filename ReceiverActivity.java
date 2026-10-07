@@ -113,7 +113,7 @@ public class ReceiverActivity extends Activity {
     private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
     private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
     // تخفيف البياض (0-10): كيلين غير الأبيض/الفاتح بزاف (ضوء الداتا شو) والكتابة السوداء والألوان كيبقاو كيف هوما
-    private volatile int lvlWht = 9;
+    private volatile int lvlWht = 0;
     private final int[] whtLut = new int[512];   // معامل (x256) حسب درجة البياض
     private int whtLutFor = -1;
     private View dimView;
@@ -160,6 +160,9 @@ public class ReceiverActivity extends Activity {
             if (sp.getInt("l_sha", 0) == 7) me.putInt("l_sha", 0);
             me.commit();
         }
+        // مرة وحدة: تخفيف البياض يرجع 0 (الافتراضي الجديد). بعدها أي تعديل كيتحفظ
+        if (!sp.getBoolean("wh0v1", false)) sp.edit().putBoolean("wh0v1", true).putInt("l_wh3", 0).commit();
+        offX = sp.getFloat("l_offx", 0f);
         lvlFit = sp.getInt("l_fit", 10);
         lvlBri = sp.getInt("l_bri", 5);
         lvlCon = sp.getInt("l_con", 5);
@@ -173,7 +176,7 @@ public class ReceiverActivity extends Activity {
         lvlGam = sp.getInt("l_gam", 5);
         lvlVdim = sp.getInt("l_vdim", 6);
         lvlIdim = sp.getInt("l_idim", 0);
-        lvlWht = sp.getInt("l_wh3", 9);
+        lvlWht = sp.getInt("l_wh3", 0);
         lvlMar = sp.getInt("l_mar", 4);
         boostMb = sp.getInt("l_boost", 0);
         spd = sp.getInt("l_spd", 10);
@@ -1175,7 +1178,7 @@ public class ReceiverActivity extends Activity {
         float s = Math.max(1f, Math.min(6f, rw * (1f - m) / (fw * dw)));
         zoom = s;
         float eff = s * fit;
-        float px = eff > 1f ? -((fl + fr) / 2f - 0.5f) * dw * eff : 0f;
+        float px = (eff > 1f ? -((fl + fr) / 2f - 0.5f) * dw * eff : 0f) + offX * rw;
         float py = (zoom * fit - 1f) * rh / 2f;
         panX = px * COS[rotQ] - py * SIN[rotQ];
         panY = px * SIN[rotQ] + py * COS[rotQ];
@@ -1418,6 +1421,8 @@ public class ReceiverActivity extends Activity {
     // تحريك ناعم (انزلاق) بدل القفز: كل ضغطة كتزيد 0.1 من العرض/الارتفاع، والورقة كتمشي ليها بسرعة ثابتة بلا قفزات
     private static final float GLIDE_S = 0.16f;   // الوقت اللي كياخد قطع 0.1 (بالثانية)
     private float remX, remV;
+    private float offX = 0f;   // إزاحة الورقة الدقيقة (نسبة من العرض) كتتحفظ وكتتطبق على كل ورقة
+    private void saveOff() { getSharedPreferences("tvlink", MODE_PRIVATE).edit().putFloat("l_offx", offX).commit(); }
     private boolean gliding;
     private long lastFrame;
     private final Choreographer.FrameCallback glideCb = new Choreographer.FrameCallback() {
@@ -1765,7 +1770,7 @@ public class ReceiverActivity extends Activity {
         } catch (Throwable ignored) {}
     }
 
-    private void resetZoom() { zoom = 1f; panX = 0f; panY = 0f; applyZoom(); image.refreshQuality(); }
+    private void resetZoom() { zoom = 1f; float ox = offX * localW(); panX = ox * COS[rotQ]; panY = ox * SIN[rotQ]; applyZoom(); image.refreshQuality(); }
 
     // كيتطلب من الهاتف: أول ضغطة = إذن الظهور فوق التطبيقات، التانية = البطارية، وبعدها كلشي مفعل
     private void askNextPermission() {
@@ -1863,9 +1868,11 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "pl":
+                offX += 0.001f; saveOff();
                 panBy(localW() * 0.001f, 0f);    // خطوة دقيقة: 0.001 من العرض
                 break;
             case "pr":
+                offX -= 0.001f; saveOff();
                 panBy(-localW() * 0.001f, 0f);
                 break;
             case "pu":

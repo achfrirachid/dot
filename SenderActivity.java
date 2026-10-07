@@ -93,6 +93,7 @@ public class SenderActivity extends Activity {
             if (sp.getInt("s_sha", 0) == 7) me.putInt("s_sha", 0);
             me.commit();
         }
+        if (!sp.getBoolean("wh0v1", false)) sp.edit().putBoolean("wh0v1", true).putInt("s_wh3", 0).commit();
         if (!sp.contains("paircode")) sp.edit().putString("paircode", Net.DEFAULT_CODE).commit();
         bindWifi();
         buildUi();
@@ -597,7 +598,7 @@ public class SenderActivity extends Activity {
         left.addView(fx(rowOf(levelCell("🌓 إضاءة الوجوه", "gam", 0, 10, 5),
                 levelCell("🌓 تعتيم الصور", "idim", 0, 10, 0)), 72));
         left.addView(fx(rowOf(levelCell("↔ هامش الورقة (حروف اليسار)", "mar", 0, 10, 4),
-                levelCell("🔅 تخفيف البياض", "wh3", 0, 10, 9)), 72));
+                levelCell("🔅 تخفيف البياض", "wh3", 0, 10, 0)), 72));
         left.addView(fx(rowOf(
                 gbtn("📄\nامتحان", C_GREEN, new View.OnClickListener() {
                     @Override public void onClick(View v) { preset(10, 5, 5, 5, 0, 0); }
@@ -608,7 +609,7 @@ public class SenderActivity extends Activity {
                 gbtn("↺\nافتراضي", C_SLATE, new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         preset(10, 5, 5, 5, 0, 0);
-                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wh3", 9);
+                        setLevel("gam", 5); setLevel("vdim", 6); setLevel("idim", 0); setLevel("wh3", 0);
                         setLevel("vbri", 5); setLevel("vcon", 5); setLevel("vsat", 5);
                     }
                 })), 56));
@@ -652,7 +653,7 @@ public class SenderActivity extends Activity {
         rBtn = gbtn(rotText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 autoRot = !autoRot;
-                sp.edit().putBoolean("autorot", autoRot).remove("rot_asked").commit();
+                sp.edit().putBoolean("autorot", autoRot).commit();
                 rBtn.setText(rotText());
                 applyAutoRotate();
             }
@@ -1409,25 +1410,13 @@ public class SenderActivity extends Activity {
 
     // كيفعل auto-rotate فالهاتف بوحدو، وكيرجعو لحالتو الأصلية إلا تلغات الخاصية
     private void applyAutoRotate() {
+        // التدوير داخل التطبيق فقط: بلا إذن ولا فتح إعدادات النظام ولا تغيير إعدادات الهاتف
         try {
-            boolean can = Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(this);
-            if (autoRot) {
-                if (!can) {
-                    if (!sp.getBoolean("rot_asked", false)) {
-                        sp.edit().putBoolean("rot_asked", true).commit();
-                        startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                                Uri.parse("package:" + getPackageName())));
-                    }
-                    return;
-                }
-                if (!sp.contains("rot_prev")) {
-                    sp.edit().putInt("rot_prev", Settings.System.getInt(getContentResolver(),
-                            Settings.System.ACCELEROMETER_ROTATION, 0)).commit();
-                }
-                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, 1);
-            } else if (can && sp.contains("rot_prev")) {
-                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION,
-                        sp.getInt("rot_prev", 0));
+            setRequestedOrientation(autoRot ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            // إلا كانت نسخة قديمة بدلات إعداد النظام: كنرجعوه مرة وحدة بصمت (بلا فتح أي شاشة)
+            if (sp.contains("rot_prev") && (Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(this))) {
+                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, sp.getInt("rot_prev", 0));
                 sp.edit().remove("rot_prev").commit();
             }
         } catch (Exception ignored) {}
