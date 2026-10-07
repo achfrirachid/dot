@@ -15,11 +15,15 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
 
     <application
         android:label="TV Link"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:banner="@drawable/banner"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
@@ -54,9 +58,11 @@
         <service android:name=".MediaServerService" android:exported="false"
             android:foregroundServiceType="mediaPlayback"/>
 
-        <receiver android:name=".BootReceiver" android:exported="true">
-            <intent-filter>
+        <receiver android:name=".BootReceiver" android:exported="true" android:enabled="true">
+            <intent-filter android:priority="999">
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="com.tvlink.app.BOOT_RETRY"/>
                 <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
