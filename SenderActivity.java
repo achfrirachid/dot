@@ -71,6 +71,8 @@ public class SenderActivity extends Activity {
     private int mlevel = 1;
     private boolean compat = false, autoRot = true;
     private Button cBtn, rBtn, gBtn, brdBtn, kinvBtn;
+    private Button dsBtn1, dsBtn2;
+    private int dsMode = 0;   // 0 = متوقف (الإعدادات القديمة) · 1 = تلقائي مناسب للداتاشو · 2 = صافية جدا
     private boolean glassOn = true;
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -83,6 +85,7 @@ public class SenderActivity extends Activity {
         ip = sp.getString("ip", null);
         mlevel = sp.getInt("mlevel4", 3);
         compat = sp.getBoolean("compat", false);
+        dsMode = sp.getInt("dsmode", 0);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
         hq = sp.getBoolean("hq", true);
@@ -790,24 +793,16 @@ public class SenderActivity extends Activity {
             @Override public void onClick(View v) { setLevel("px", 0); setLevel("py", 0); }
         }), 46));
 
-        // --- إيموجي متحركة ---
-        LinearLayout emo = glassCard("✨ إيموجي متحركة (5 ثواني وتختفي)", 0xB3FFF8E1, 0xCCFFB300);
-        emo.addView(fx(gbtn("🎲 مفاجأة! كل ضغطة حركة جديدة", C_ORANGE, ctl("fx")), 58));
-        int total = FxView.SCENES.length;
-        for (int rowStart = 0; rowStart < total; rowStart += 6) {
-            LinearLayout er = box(false);
-            for (int j = 0; j < 6; j++) {
-                int idx = rowStart + j;
-                if (idx < total) {
-                    Button eb = gbtn(FxView.SCENES[idx].em[0], C_CREAM, ctl("fx" + idx));
-                    autosize(eb, 14, 28);
-                    er.addView(hw(eb, 1f));
-                } else {
-                    er.addView(hw(new View(this), 1f));
-                }
-            }
-            emo.addView(fx(er, 46));
-        }
+        // --- الدقة المناسبة للداتاشو (خانة جديدة، لا تغير شيئاً من الإعدادات القديمة) ---
+        LinearLayout ds = glassCard("🎯 الدقة المناسبة للداتاشو (BenQ MP622c · XGA 1024×768)", 0xB3E3F2FD, 0xCC1E88E5);
+        dsBtn1 = gbtn(dsText(1), C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) { setDs(dsMode == 1 ? 0 : 1); }
+        });
+        ds.addView(fx(dsBtn1, 66));
+        dsBtn2 = gbtn(dsText(2), C_PURPLE, new View.OnClickListener() {
+            @Override public void onClick(View v) { setDs(dsMode == 2 ? 0 : 2); }
+        });
+        ds.addView(fx(dsBtn2, 66));
 
         // ===== 7) الأسفل: تغيير الوضع =====
         Button modeBtn = gbtn("⚙️ تغيير الوضع (هاتف / TV Box)", C_PURPLE, new View.OnClickListener() {
@@ -833,7 +828,7 @@ public class SenderActivity extends Activity {
         addCard(content, ks);
         addCard(content, frmCard);
         addCard(content, pos);
-        addCard(content, emo);
+        addCard(content, ds);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
         ml.setMargins(0, dp(10), 0, 0);
         content.addView(modeBtn, ml);
@@ -1638,6 +1633,24 @@ public class SenderActivity extends Activity {
         return "🪟 زجاج الداتا شو\n" + (glassOn ? "مفعل ✅" : "ملغى");
     }
 
+    private String dsText(int m) {
+        if (m == 1) return "🎯 تلقائي: أنسب جودة للداتاشو\n(تناسب جهازك بدون تعب)\n" + (dsMode == 1 ? "مفعل ✅" : "اضغط للتفعيل");
+        return "💎 صافية جدا (وضوح أقصى)\n(للسبورة البيضاء والامتحانات الملونة)\n" + (dsMode == 2 ? "مفعل ✅" : "اضغط للتفعيل");
+    }
+
+    private void setDs(int m) {
+        dsMode = m;
+        sp.edit().putInt("dsmode", m).commit();
+        dsBtn1.setText(dsText(1));
+        dsBtn2.setText(dsText(2));
+        // إلا العرض شغال كيتطبق فوراً بلا ما توقفو
+        try { startService(new Intent(this, ScreenService.class)
+                .setAction("level").putExtra("level", mlevel).putExtra("dsmode", dsMode)); } catch (Exception ignored) {}
+        setStatus(m == 0 ? "رجعنا للإعدادات القديمة." : m == 1
+                ? "✅ تم تفعيل الجودة المناسبة للداتاشو (XGA 1024×768 الأصلية)."
+                : "✅ تم تفعيل الجودة الصافية جداً.");
+    }
+
     private String compatText() {
         return "🛠 توافق (هواتف قديمة)\n" + (compat ? "مفعل ✅" : "ملغى");
     }
@@ -1723,6 +1736,7 @@ public class SenderActivity extends Activity {
                         s.putExtra("code", c);
                         s.putExtra("level", mlevel);
                         s.putExtra("compat", compat);
+                        s.putExtra("dsmode", dsMode);
                         if (Build.VERSION.SDK_INT >= 26) startForegroundService(s); else startService(s);
                         setStatus("✅ عرض الشاشة شغال. استعمل الهاتف عادي.");
                         moveTaskToBack(true);

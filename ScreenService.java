@@ -49,11 +49,35 @@ public class ScreenService extends Service {
     private Bitmap bmp;
     private int level = 1;
     private boolean compat;
+    private int dsMode = 0;   // 0 = كيف كان · 1 = أنسب للداتاشو · 2 = صافية جدا
     private int jq = 62;
     private int dpi = 320;
     private long lastCheck, lastSum, lastSent;
     private int baseJq = 62, curJq = 62;
     private long extraWait = 0;
+    private int lastW, lastH;
+    // بعد ثبات الشاشة (امتحان/PDF/سبورة) نعاودو نبعثو نفس الصورة بأعلى جودة باش الكتابة تبان صافية
+    private final Runnable sharp = new Runnable() {
+        @Override public void run() {
+            try {
+                if (!running || dsMode == 0 || bmp == null || out == null || lastW <= 0) return;
+                if (bmp.getWidth() < lastW || bmp.getHeight() < lastH) return;
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                if (pm != null && !pm.isInteractive()) return;
+                Bitmap src = bmp.getWidth() == lastW && bmp.getHeight() == lastH ? bmp
+                        : Bitmap.createBitmap(bmp, 0, 0, lastW, lastH);
+                ByteArrayOutputStream bo = new ByteArrayOutputStream(256 * 1024);
+                src.compress(Bitmap.CompressFormat.JPEG, 98, bo);
+                if (src != bmp) src.recycle();
+                out.writeInt(bo.size());
+                bo.writeTo(out);
+                out.flush();
+                lastSent = SystemClock.uptimeMillis();
+            } catch (Exception e) {
+                stopAll();
+            }
+        }
+    };
     private WifiManager.WifiLock wlock;
     private PowerManager.WakeLock wake;
     private final ImageReader.OnImageAvailableListener frameListener = new ImageReader.OnImageAvailableListener() {
@@ -73,6 +97,7 @@ public class ScreenService extends Service {
         if ("level".equals(in.getAction())) {
             if (!running || handler == null) { stopSelf(); return START_NOT_STICKY; }
             level = in.getIntExtra("level", 1);
+            dsMode = in.getIntExtra("dsmode", dsMode);
             handler.post(new Runnable() {
                 @Override public void run() { reconfigure(false); }
             });
@@ -86,6 +111,7 @@ public class ScreenService extends Service {
         final String code = in.getStringExtra("code");
         level = in.getIntExtra("level", 1);
         compat = in.getBooleanExtra("compat", false);
+        dsMode = in.getIntExtra("dsmode", 0);
         running = true;
         ht = new HandlerThread("tvlink-cap");
         ht.start();
@@ -175,11 +201,20 @@ public class ScreenService extends Service {
             dpi = dm.densityDpi;
             int longSide = level == 0 ? 854 : level == 1 ? 1280 : level == 2 ? 1920 : level == 3 ? 2560 : 4096;
             if (compat && longSide > 1920) longSide = 1920;
-            float sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
+            float sc;
+            if (dsMode > 0) {
+                // الداتاشو أصلياً XGA 1024×768 (4:3): نلتقطو بدقة أكبر منها (×1.5 أو ×1.9) باش التصغير يعطي حدة صافية
+                boolean land0 = dm.widthPixels > dm.heightPixels;
+                float bl = dsMode == 2 ? 1920f : 1536f, bs = dsMode == 2 ? 1440f : 1152f;
+                float bw0 = land0 ? bl : bs, bh0 = land0 ? bs : bl;
+                sc = Math.min(1f, Math.min(bw0 / dm.widthPixels, bh0 / dm.heightPixels));
+            } else {
+                sc = Math.min(1f, (float) longSide / Math.max(dm.widthPixels, dm.heightPixels));
+            }
             int al = compat ? 16 : 2;
             int nw = Math.max(al, (Math.round(dm.widthPixels * sc) / al) * al);
             int nh = Math.max(al, (Math.round(dm.heightPixels * sc) / al) * al);
-            baseJq = level == 0 ? 80 : level == 1 ? 88 : level == 2 ? 92 : 95;
+            baseJq = dsMode == 2 ? 97 : dsMode == 1 ? 95 : level == 0 ? 80 : level == 1 ? 88 : level == 2 ? 92 : 95;
             jq = curJq = baseJq;
             extraWait = 0;
             lastSum = 0;
@@ -266,13 +301,18 @@ public class ScreenService extends Service {
             // تكيف تلقائي: إلا الشبكة بطيئة كنخفضو الجودة والسرعة بلا ما يتبلوكا، وإلا رجعات سريعة كنرجعو
             long took = lastSent - t0;
             if (took > 150) {
-                curJq = Math.max(78, curJq - 4);
+                curJq = Math.max(dsMode > 0 ? 90 : 78, curJq - 4);
                 extraWait = Math.min(120, extraWait + 15);
             } else if (took < 40) {
                 curJq = Math.min(baseJq, curJq + 2);
                 extraWait = Math.max(0, extraWait - 5);
             }
             jq = curJq;
+            if (dsMode > 0) {
+                lastW = w; lastH = h;
+                handler.removeCallbacks(sharp);
+                handler.postDelayed(sharp, 500);
+            }
         } catch (Exception e) {
             stopAll();
         } finally {
