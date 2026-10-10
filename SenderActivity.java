@@ -794,15 +794,15 @@ public class SenderActivity extends Activity {
         }), 46));
 
         // --- الدقة المناسبة للداتاشو (خانة جديدة، لا تغير شيئاً من الإعدادات القديمة) ---
-        LinearLayout ds = glassCard("🎯 الدقة المناسبة للداتاشو (BenQ MP622c · XGA 1024×768)", 0xB3E3F2FD, 0xCC1E88E5);
+        LinearLayout dsCard = glassCard("🎯 الدقة المناسبة للداتاشو (BenQ MP622c · XGA 1024×768)", 0xB3E3F2FD, 0xCC1E88E5);
         dsBtn1 = gbtn(dsText(1), C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) { setDs(dsMode == 1 ? 0 : 1); }
         });
-        ds.addView(fx(dsBtn1, 66));
+        dsCard.addView(fx(dsBtn1, 66));
         dsBtn2 = gbtn(dsText(2), C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) { setDs(dsMode == 2 ? 0 : 2); }
         });
-        ds.addView(fx(dsBtn2, 66));
+        dsCard.addView(fx(dsBtn2, 66));
 
         // ===== 7) الأسفل: تغيير الوضع =====
         Button modeBtn = gbtn("⚙️ تغيير الوضع (هاتف / TV Box)", C_PURPLE, new View.OnClickListener() {
@@ -828,7 +828,7 @@ public class SenderActivity extends Activity {
         addCard(content, ks);
         addCard(content, frmCard);
         addCard(content, pos);
-        addCard(content, ds);
+        addCard(content, dsCard);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
         ml.setMargins(0, dp(10), 0, 0);
         content.addView(modeBtn, ml);

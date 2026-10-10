@@ -109,7 +109,7 @@ public class ReceiverActivity extends Activity {
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
     private int lvlVdim = 6;
-    // ===== إضافات: السبورة / الكادر / البوزيشن / الإيموجي =====
+    // ===== إضافات: السبورة / الكادر / البوزيشن =====
     private int boardMode = 0;                 // 0 ملغى · 1 سبورة سوداء · 2 سبورة خضراء
     private int lvlBch = 8, lvlBcn = 6, lvlBbg = 0, lvlBtn = 0;   // إضاءة الطباشير · تباين · توهج الورقة · لون الطباشير
     private int lvlKv = 0, lvlKh = 0, lvlKr = 0;                  // كادر: عمودي · أفقي · ميلان
@@ -399,7 +399,7 @@ public class ReceiverActivity extends Activity {
         frameV = new View(this);   // إطار ملون كيحدد مجال السبورة (داخل root: كيتبع الكادر والبوزيشن)
         root.addView(frameV, new FrameLayout.LayoutParams(-1, -1));
         frameV.setVisibility(View.GONE);
-        fx = new FxView(this);   // إيموجي متحركة (5 ثواني) فوق كل شيء، ما كتلمس والو
+        fx = new FxView(this);   // طبقة المسطرة فوق كل شيء، ما كتلمس والو
         root.addView(fx, new FrameLayout.LayoutParams(-1, -1));
         root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
             @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
@@ -1699,12 +1699,11 @@ public class ReceiverActivity extends Activity {
 
     private boolean newLevelKey(String k) {
         return "brd".equals(k) || "bch".equals(k) || "bcn".equals(k) || "bbg".equals(k) || "btn".equals(k)
-                || "kv".equals(k) || "kh".equals(k) || "kr".equals(k) || "px".equals(k) || "py".equals(k) || "kinv".equals(k) || "frm".equals(k) || "fcl".equals(k) || "bw".equals(k) || "fth".equals(k) || "fx".equals(k);
+                || "kv".equals(k) || "kh".equals(k) || "kr".equals(k) || "px".equals(k) || "py".equals(k) || "kinv".equals(k) || "frm".equals(k) || "fcl".equals(k) || "bw".equals(k) || "fth".equals(k);
     }
 
     private void newLevel(String k, int n, SharedPreferences.Editor ed) {
         String lab = "";
-        if ("fx".equals(k)) { if (fx != null) fx.play(n); return; }
         if ("brd".equals(k)) { boardMode = clamp(n, 0, 2); ed.putInt("l_brd", boardMode); lab = boardMode == 0 ? "🧑‍🏫 السبورة: ملغى" : boardMode == 1 ? "🧑‍🏫 سبورة سوداء ⚫" : "🧑‍🏫 سبورة خضراء 🟢"; }
         else if ("bch".equals(k)) { lvlBch = clamp(n, 1, 10); ed.putInt("l_bch", lvlBch); lab = "💡 إضاءة الطباشير: " + lvlBch + "/10"; }
         else if ("bcn".equals(k)) { lvlBcn = clamp(n, 1, 10); ed.putInt("l_bcn", lvlBcn); lab = "◐ تباين السبورة: " + lvlBcn + "/10"; }
@@ -1936,10 +1935,6 @@ public class ReceiverActivity extends Activity {
 
     private void control(String cmd) {
         if (cmd == null) return;
-        if (cmd.startsWith("fx") && cmd.length() > 2) {   // fx0..fx21: إيموجي معينة
-            try { if (fx != null) fx.play(Integer.parseInt(cmd.substring(2))); } catch (Exception ignored) {}
-            return;
-        }
         if (cmd.indexOf(':') > 0) { levelCmd(cmd); return; }
         switch (cmd) {
             case "vpanel":
@@ -1950,9 +1945,6 @@ public class ReceiverActivity extends Activity {
                 break;
             case "ruler":
                 if (fx != null) fx.toggleRuler();
-                break;
-            case "fx":
-                if (fx != null) fx.playRandom();
                 break;
             case "perm":
                 runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });
