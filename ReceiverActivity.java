@@ -109,6 +109,16 @@ public class ReceiverActivity extends Activity {
     private volatile int lvlGam = 5;
     // تعتيم البياض فالفيديو (0-10): كيخفف الضو ديال الداتا شو باش الكتابة السوداء تبان
     private int lvlVdim = 6;
+    // ===== إضافات: السبورة / الكادر / البوزيشن / الإيموجي =====
+    private int boardMode = 0;                 // 0 ملغى · 1 سبورة سوداء · 2 سبورة خضراء
+    private int lvlBch = 8, lvlBcn = 6, lvlBbg = 0, lvlBtn = 0;   // إضاءة الطباشير · تباين · توهج الورقة · لون الطباشير
+    private int lvlKv = 0, lvlKh = 0, lvlKr = 0;                  // كادر: عمودي · أفقي · ميلان
+    private int lvlPx = 0, lvlPy = 0;                             // بوزيشن: أفقي · عمودي
+    private int lvlFrm = 0, lvlFcl = 0, lvlBw = 930, lvlFth = 3;   // إطار السبورة: تفعيل · لون · عرض % · غلظة
+    private View frameV;
+    private int lvlKinv = 0;                                      // عكس اتجاه الكادر (إلا الأسهم خدمات بالعكس)
+    private FxView fx;
+    private static final float[][] TINT = {{1f, 1f, 1f}, {1f, 0.97f, 0.88f}, {1f, 0.92f, 0.47f}, {0.67f, 0.88f, 1f}, {1f, 0.75f, 0.84f}};
     private int lvlMar = 4;   // هامش أمان للورقة (0-10): كيصغر الورقة شوية باش الحروف اللي فالحافة ما تتقطعش
     private float[] contentLR;   // حدود الكتابة الفعلية فالورقة (نسبة من العرض): [يسار، يمين]
     private int lvlIdim = 0;   // تعتيم الصور/PDF (0 = الأصل بلا تغيير)
@@ -184,6 +194,21 @@ public class ReceiverActivity extends Activity {
         panelOff = sp.getBoolean("v_paneloff", false);
         glass = sp.getInt("l_glass", 1);
         liveMode = sp.getInt("l_live", 0);
+        boardMode = sp.getInt("l_brd", 0);
+        lvlBch = sp.getInt("l_bch", 8);
+        lvlBcn = sp.getInt("l_bcn", 6);
+        lvlBbg = sp.getInt("l_bbg", 0);
+        lvlBtn = sp.getInt("l_btn", 0);
+        lvlKv = sp.getInt("l_kv", 0);
+        lvlKh = sp.getInt("l_kh", 0);
+        lvlKr = sp.getInt("l_kr", 0);
+        lvlPx = sp.getInt("l_px", 0);
+        lvlPy = sp.getInt("l_py", 0);
+        lvlKinv = sp.getInt("l_kinv", 0);
+        lvlFrm = sp.getInt("l_frm", 0);
+        lvlFcl = sp.getInt("l_fcl", 0);
+        lvlBw = sp.getInt("l_bw", 930);
+        lvlFth = sp.getInt("l_fth", 3);
         buildUi();
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
             @Override public void onSystemUiVisibilityChange(int v) {
@@ -371,6 +396,16 @@ public class ReceiverActivity extends Activity {
         hl.setMargins(dpx(20), dpx(20), dpx(20), dpx(20));
         root.addView(hud, hl);
         hud.setVisibility(View.GONE);
+        frameV = new View(this);   // إطار ملون كيحدد مجال السبورة (داخل root: كيتبع الكادر والبوزيشن)
+        root.addView(frameV, new FrameLayout.LayoutParams(-1, -1));
+        frameV.setVisibility(View.GONE);
+        fx = new FxView(this);   // إيموجي متحركة (5 ثواني) فوق كل شيء، ما كتلمس والو
+        root.addView(fx, new FrameLayout.LayoutParams(-1, -1));
+        root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) {
+                if (r - l != or - ol || b - t != ob - ot) applyStage();
+            }
+        });
         root.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (video.getVisibility() != View.VISIBLE) return;
@@ -378,7 +413,12 @@ public class ReceiverActivity extends Activity {
                 else showPanel();
             }
         });
-        setContentView(root);
+        FrameLayout outer = new FrameLayout(this);   // خلفية سوداء ثابتة: باش الكادر/البوزيشن يتحركو بلا ما يبان شي حاجة وراه
+        outer.setBackgroundColor(Color.BLACK);
+        outer.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(outer);
+        applyStage();
+        applyFrame();
         bNewRef.requestFocus();
     }
 
@@ -445,6 +485,21 @@ public class ReceiverActivity extends Activity {
         if ("txt".equals(k)) return lvlTxt;
         if ("sha".equals(k)) return lvlSha;
         if ("gam".equals(k)) return lvlGam;
+        if ("brd".equals(k)) return boardMode;
+        if ("bch".equals(k)) return lvlBch;
+        if ("bcn".equals(k)) return lvlBcn;
+        if ("bbg".equals(k)) return lvlBbg;
+        if ("btn".equals(k)) return lvlBtn;
+        if ("kv".equals(k)) return lvlKv;
+        if ("kh".equals(k)) return lvlKh;
+        if ("kr".equals(k)) return lvlKr;
+        if ("px".equals(k)) return lvlPx;
+        if ("py".equals(k)) return lvlPy;
+        if ("kinv".equals(k)) return lvlKinv;
+        if ("frm".equals(k)) return lvlFrm;
+        if ("fcl".equals(k)) return lvlFcl;
+        if ("bw".equals(k)) return lvlBw;
+        if ("fth".equals(k)) return lvlFth;
         return 0;
     }
 
@@ -900,7 +955,9 @@ public class ReceiverActivity extends Activity {
             } else if ("/levels".equals(p)) {
                 reply(out, 200, "fit=" + lvlFit + ",bri=" + lvlBri + ",con=" + lvlCon + ",sat=" + lvlSat + ",vbri=" + lvlVbri + ",vcon=" + lvlVcon + ",vsat=" + lvlVsat
                         + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wh3=" + lvlWht + ",mar=" + lvlMar
-                        + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv);
+                        + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv
+                        + ",brd=" + boardMode + ",bch=" + lvlBch + ",bcn=" + lvlBcn + ",bbg=" + lvlBbg + ",btn=" + lvlBtn
+                        + ",kv=" + lvlKv + ",kh=" + lvlKh + ",kr=" + lvlKr + ",px=" + lvlPx + ",py=" + lvlPy + ",kinv=" + lvlKinv + ",frm=" + lvlFrm + ",fcl=" + lvlFcl + ",bw=" + lvlBw + ",fth=" + lvlFth);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
             } else if ("/ctl".equals(p)) {
@@ -1519,12 +1576,13 @@ public class ReceiverActivity extends Activity {
             }
         }
         // الصور وPDF: نفس الشيء + وضع السبورة (قلب الألوان: ورقة سوداء وكتابة بيضاء)
-        if (baseNeutral && inv == 0) {
+        if (baseNeutral && inv == 0 && boardMode == 0) {
             image.setLayerType(View.LAYER_TYPE_NONE, null);
             multi.setLayerType(View.LAYER_TYPE_NONE, null);
         } else {
             ColorMatrix cm2 = new ColorMatrix(cm);
-            if (inv == 1) cm2.postConcat(new ColorMatrix(new float[]{
+            if (boardMode > 0) cm2.postConcat(boardMatrix());   // وضع السبورة: ورقة بلا ضوء + كتابة طباشير
+            else if (inv == 1) cm2.postConcat(new ColorMatrix(new float[]{
                     -1, 0, 0, 0, 255,
                     0, -1, 0, 0, 255,
                     0, 0, -1, 0, 255,
@@ -1582,6 +1640,91 @@ public class ReceiverActivity extends Activity {
         }
         if (hint != null) hint.setTextColor(SOFT_TXT);
         applyLevels();
+    }
+
+
+    // ---------------- السبورة (سوداء / خضراء) ----------------
+    // الورقة البيضاء كتولي بلا ضوء (السبورة الحقيقية كتبان بلونها) والكتابة السوداء كتولي طباشير مضيء
+    private ColorMatrix boardMatrix() {
+        float chalk = Math.min(255f, 105f + 17f * lvlBch);
+        float k = 0.6f + 0.2f * lvlBcn;
+        float[] tn = TINT[Math.max(0, Math.min(TINT.length - 1, lvlBtn))];
+        float g = 3f * lvlBbg;
+        float[] bg = boardMode == 2 ? new float[]{g * 0.35f, g, g * 0.7f} : new float[]{g, g, g};
+        float[] m = new float[20];
+        for (int ch = 0; ch < 3; ch++) {
+            float hi = chalk * tn[ch], lo = bg[ch];
+            m[ch * 5 + ch] = -(hi - lo) * k / 255f;
+            m[ch * 5 + 4] = lo + (hi - lo) / 255f * (127f * k + 128f);
+        }
+        m[18] = 1f;
+        return new ColorMatrix(m);
+    }
+
+    // إطار ملون حول مجال السبورة: تلقائي = أبيض على السبورة السوداء/الخضراء، وأخضر فاتح على البيضاء
+    private void applyFrame() {
+        if (frameV == null) return;
+        if (lvlFrm != 1) { frameV.setVisibility(View.GONE); return; }
+        int[] cols = {0, 0xFFFFFFFF, 0xFF81C784, 0xFF81D4FA, 0xFFFFEE58};
+        int col = lvlFcl == 0 ? (boardMode > 0 ? 0xFFFFFFFF : 0xFF81C784) : cols[lvlFcl];
+        int w = Math.max(root.getWidth(), getResources().getDisplayMetrics().widthPixels);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Color.TRANSPARENT);
+        g.setStroke(Math.max(3, lvlFth * w / 300), col);
+        frameV.setBackground(g);
+        frameV.setVisibility(View.VISIBLE);
+    }
+
+    // ---------------- الكادر + البوزيشن (على الداتا شو كاملة) ----------------
+    private void applyStage() {
+        if (root == null) return;
+        int w = root.getWidth(), h = root.getHeight();
+        if (w <= 0 || h <= 0) return;
+        float dist = 1.7f * Math.max(w, h);
+        root.setCameraDistance(dist);
+        float sg = lvlKinv == 1 ? -1f : 1f;
+        float ax = sg * lvlKv * 0.5f, ay = sg * lvlKh * 0.5f;
+        root.setRotationX(ax);          // كادر عمودي: الأعلى/الأسفل أضيق أو أعرض
+        root.setRotationY(ay);          // كادر أفقي: اليسار/اليمين أقصر أو أطول
+        root.setRotation(lvlKr * 0.25f); // ميلان
+        // تعويض: الحافة القريبة ما تخرجش من الشاشة
+        float zx = (float) (Math.abs(Math.sin(Math.toRadians(ax))) * h / 2f);
+        float zy = (float) (Math.abs(Math.sin(Math.toRadians(ay))) * w / 2f);
+        float s = Math.max(0.3f, (1f - zx / dist) * (1f - zy / dist)) * (lvlFrm == 1 ? lvlBw / 1000f : 1f);   // عرض السبورة % (الطول تلقائي بنفس النسبة)
+        root.setScaleX(s);
+        root.setScaleY(s);
+        root.setTranslationX(lvlPx * 0.005f * w);
+        root.setTranslationY(lvlPy * 0.005f * h);
+    }
+
+    private boolean newLevelKey(String k) {
+        return "brd".equals(k) || "bch".equals(k) || "bcn".equals(k) || "bbg".equals(k) || "btn".equals(k)
+                || "kv".equals(k) || "kh".equals(k) || "kr".equals(k) || "px".equals(k) || "py".equals(k) || "kinv".equals(k) || "frm".equals(k) || "fcl".equals(k) || "bw".equals(k) || "fth".equals(k) || "fx".equals(k);
+    }
+
+    private void newLevel(String k, int n, SharedPreferences.Editor ed) {
+        String lab = "";
+        if ("fx".equals(k)) { if (fx != null) fx.play(n); return; }
+        if ("brd".equals(k)) { boardMode = clamp(n, 0, 2); ed.putInt("l_brd", boardMode); lab = boardMode == 0 ? "🧑‍🏫 السبورة: ملغى" : boardMode == 1 ? "🧑‍🏫 سبورة سوداء ⚫" : "🧑‍🏫 سبورة خضراء 🟢"; }
+        else if ("bch".equals(k)) { lvlBch = clamp(n, 1, 10); ed.putInt("l_bch", lvlBch); lab = "💡 إضاءة الطباشير: " + lvlBch + "/10"; }
+        else if ("bcn".equals(k)) { lvlBcn = clamp(n, 1, 10); ed.putInt("l_bcn", lvlBcn); lab = "◐ تباين السبورة: " + lvlBcn + "/10"; }
+        else if ("bbg".equals(k)) { lvlBbg = clamp(n, 0, 10); ed.putInt("l_bbg", lvlBbg); lab = "🌫 توهج الورقة: " + lvlBbg + "/10"; }
+        else if ("btn".equals(k)) { lvlBtn = clamp(n, 0, 4); ed.putInt("l_btn", lvlBtn); lab = "🎨 لون الطباشير: " + new String[]{"أبيض", "كريمي", "أصفر", "أزرق فاتح", "وردي"}[lvlBtn]; }
+        else if ("kv".equals(k)) { lvlKv = clamp(n, -30, 30); ed.putInt("l_kv", lvlKv); lab = "📐 كادر عمودي: " + lvlKv; }
+        else if ("kh".equals(k)) { lvlKh = clamp(n, -30, 30); ed.putInt("l_kh", lvlKh); lab = "📐 كادر أفقي: " + lvlKh; }
+        else if ("kr".equals(k)) { lvlKr = clamp(n, -30, 30); ed.putInt("l_kr", lvlKr); lab = "📐 ميلان: " + lvlKr; }
+        else if ("frm".equals(k)) { lvlFrm = clamp(n, 0, 1); ed.putInt("l_frm", lvlFrm); lab = "🖼 إطار السبورة: " + (lvlFrm == 1 ? "مفعل" : "ملغى"); }
+        else if ("fcl".equals(k)) { lvlFcl = clamp(n, 0, 4); ed.putInt("l_fcl", lvlFcl); lab = "🎨 لون الإطار: " + new String[]{"تلقائي", "أبيض", "أخضر فاتح", "أزرق فاتح", "أصفر"}[lvlFcl]; }
+        else if ("bw".equals(k)) { lvlBw = clamp(n, 500, 1000); ed.putInt("l_bw", lvlBw); lab = "↔ عرض الإطار: " + (lvlBw / 10f) + "% من الصورة"; }
+        else if ("fth".equals(k)) { lvlFth = clamp(n, 1, 10); ed.putInt("l_fth", lvlFth); lab = "▭ غلظة الإطار: " + lvlFth; }
+        else if ("kinv".equals(k)) { lvlKinv = clamp(n, 0, 1); ed.putInt("l_kinv", lvlKinv); lab = "🔁 عكس اتجاه الكادر: " + (lvlKinv == 1 ? "مفعل" : "ملغى"); }
+        else if ("px".equals(k)) { lvlPx = clamp(n, -30, 30); ed.putInt("l_px", lvlPx); lab = "🧭 بوزيشن أفقي: " + lvlPx; }
+        else if ("py".equals(k)) { lvlPy = clamp(n, -30, 30); ed.putInt("l_py", lvlPy); lab = "🧭 بوزيشن عمودي: " + lvlPy; }
+        ed.commit();
+        applyFrame();
+        if ("kv".equals(k) || "kh".equals(k) || "kr".equals(k) || "px".equals(k) || "py".equals(k) || "kinv".equals(k) || "bw".equals(k) || "frm".equals(k)) applyStage();
+        else applyLevels();
+        hud(lab);
     }
 
     private void levelCmd(String cmd) {
@@ -1660,6 +1803,7 @@ public class ReceiverActivity extends Activity {
             return;
         }
         else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.commit(); refreshSettings(); return; }
+        else if (newLevelKey(k)) { newLevel(k, n, ed); return; }
         else if ("sha".equals(k)) {
             int old = lvlSha;
             lvlSha = clamp(n, 0, 10);
@@ -1792,6 +1936,10 @@ public class ReceiverActivity extends Activity {
 
     private void control(String cmd) {
         if (cmd == null) return;
+        if (cmd.startsWith("fx") && cmd.length() > 2) {   // fx0..fx21: إيموجي معينة
+            try { if (fx != null) fx.play(Integer.parseInt(cmd.substring(2))); } catch (Exception ignored) {}
+            return;
+        }
         if (cmd.indexOf(':') > 0) { levelCmd(cmd); return; }
         switch (cmd) {
             case "vpanel":
@@ -1799,6 +1947,12 @@ public class ReceiverActivity extends Activity {
                 break;
             case "beep":
                 beep();
+                break;
+            case "ruler":
+                if (fx != null) fx.toggleRuler();
+                break;
+            case "fx":
+                if (fx != null) fx.playRandom();
                 break;
             case "perm":
                 runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });

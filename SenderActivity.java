@@ -70,7 +70,7 @@ public class SenderActivity extends Activity {
     private Button mBtn;
     private int mlevel = 1;
     private boolean compat = false, autoRot = true;
-    private Button cBtn, rBtn, gBtn;
+    private Button cBtn, rBtn, gBtn, brdBtn, kinvBtn;
     private boolean glassOn = true;
     private SharedPreferences sp;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -670,6 +670,145 @@ public class SenderActivity extends Activity {
         disp.addView(fx(rowOf(gbtn("🖥 الشكل\nملء ← تغطية ← أصلي", C_AMBER, ctl("lmode")), gBtn), 58));
         disp.addView(fx(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 46));
 
+        // ===== 6.5) إضافات جديدة (فالأسفل): سبورة · كادر · بوزيشن · إيموجي =====
+        regLevel("brd", 0, 2, 0);
+        regLevel("kinv", 0, 1, 0);
+        regLevel("kv", -30, 30, 0);
+        regLevel("kh", -30, 30, 0);
+        regLevel("kr", -30, 30, 0);
+        regLevel("px", -30, 30, 0);
+        regLevel("py", -30, 30, 0);
+
+        // --- السبورة السوداء / الخضراء ---
+        LinearLayout brd = glassCard("🖍 السبورة السوداء / الخضراء (الامتحان بطباشير)", 0xB3ECEFF1, 0xCC607D8B);
+        brdBtn = gbtn(brdText(), C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("brd", (sp.getInt("s_brd", 0) + 1) % 3); }
+        });
+        brd.addView(fx(brdBtn, 56));
+        brd.addView(fx(rowOf(
+                gbtn("⚫\nسوداء", C_SLATE, new View.OnClickListener() {
+                    @Override public void onClick(View v) { setLevel("brd", 1); setLevel("bch", 8); setLevel("bcn", 6); setLevel("bbg", 0); setLevel("btn", 0); }
+                }),
+                gbtn("🟢\nخضراء", C_GREEN, new View.OnClickListener() {
+                    @Override public void onClick(View v) { setLevel("brd", 2); setLevel("bch", 8); setLevel("bcn", 6); setLevel("bbg", 0); setLevel("btn", 1); }
+                }),
+                gbtn("⬜\nملغى", C_CREAM, new View.OnClickListener() {
+                    @Override public void onClick(View v) { setLevel("brd", 0); }
+                })), 54));
+        brd.addView(fx(rowOf(levelCell("💡 إضاءة الطباشير", "bch", 1, 10, 8),
+                levelCell("◐ تباين السبورة", "bcn", 1, 10, 6)), 72));
+        brd.addView(fx(rowOf(levelCell("🌫 توهج الورقة", "bbg", 0, 10, 0),
+                levelCell("🎨 لون الطباشير", "btn", 0, 4, 0)), 72));
+        TextView legend = label("لون الطباشير: 0 أبيض · 1 كريمي · 2 أصفر · 3 أزرق · 4 وردي", 11, false);
+        autosize(legend, 8, 12);
+        brd.addView(fx(legend, 22));
+
+        // --- الكادر ---
+        LinearLayout frame = glassCard("📐 الكادر (باش يكون مقاد ومتوازي)", 0xB3E8EAF6, 0xCC7986CB);
+        frame.addView(fx(stepRow("↕ كادر عمودي", "kv", "◢◣\nالأسفل أعرض", "◥◤\nالأعلى أعرض", C_BLUE), 62));
+        frame.addView(fx(stepRow("↔ كادر أفقي", "kh", "◀\nاليسار أطول", "اليمين أطول\n▶", C_CYAN), 62));
+        frame.addView(fx(stepRow("⟲ ميلان", "kr", "↺\nميل", "↻\nميل", C_AMBER), 62));
+        kinvBtn = gbtn(kinvText(), C_SLATE, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("kinv", 1 - sp.getInt("s_kinv", 0)); }
+        });
+        frame.addView(fx(rowOf(kinvBtn, gbtn("🎯\nكادر مستقيم", C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("kv", 0); setLevel("kh", 0); setLevel("kr", 0); }
+        })), 56));
+
+        // --- Keystone (أوضاع جاهزة) + مسطرة 90 سم ---
+        LinearLayout ks = glassCard("🔷 Keystone + مسطرة السبورة (93 سم)", 0xB3E0F7FA, 0xCC00ACC1);
+        ksBtn = gbtn(ksText(), C_CYAN, new View.OnClickListener() {
+            @Override public void onClick(View v) { applyKMode((sp.getInt("s_kmode", 0) + 1) % 5); }
+        });
+        ks.addView(fx(ksBtn, 60));
+        ks.addView(fx(rowOf(
+                gbtn("✅\nأساسي", C_GREEN, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(0); } }),
+                gbtn("⏢\nالأعلى أعرض", C_BLUE, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(1); } }),
+                gbtn("⏣\nالأسفل أعرض", C_BLUE, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(2); } })), 56));
+        ks.addView(fx(rowOf(
+                gbtn("◁\nاليمين أطول", C_AMBER, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(3); } }),
+                gbtn("▷\nاليسار أطول", C_AMBER, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(4); } })), 56));
+        ks.addView(fx(levelCell("💪 قوة التصحيح", "ks", 1, 10, 5), 72));
+        ks.addView(fx(gbtn("📏 مسطرة 93 سم (تبان/تخبى)", C_PINK, ctl("ruler")), 52));
+
+        // --- إطار السبورة (عرض 93 سم، الطول تلقائي) ---
+        regLevel("frm", 0, 1, 0);
+        regLevel("bw", 500, 1000, 930);
+        regLevel("cmw", 30, 300, 93);
+        regLevel("fullw", 50, 400, 100);
+        LinearLayout frmCard = glassCard("🖼 إطار السبورة (عرضها 93 سم · الطول تلقائي)", 0xB3E8F5E9, 0xCC66BB6A);
+        frmBtn = gbtn(frmText(), C_GREEN, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("frm", 1 - sp.getInt("s_frm", 0)); }
+        });
+        frmCard.addView(fx(frmBtn, 56));
+        frmCard.addView(fx(stepRow("↔ عرض الإطار (سم)", "cmw", "−1 سم", "+1 سم", C_GREEN), 62));
+        frmCard.addView(fx(stepRow("📏 عرض الإسقاط كامل (سم)", "fullw", "−1 سم", "+1 سم", C_AMBER), 62));
+        TextView lg3 = label("قيس مرة وحدة عرض الصورة كاملة فالسبورة (سم) وكتبو فخانة الإسقاط، من بعد زيد/نقص الإطار بالسنتيمتر", 11, false);
+        autosize(lg3, 8, 11);
+        lg3.setSingleLine(false);
+        frmCard.addView(fx(lg3, 34));
+        frmCard.addView(fx(rowOf(levelCell("🎨 لون الإطار", "fcl", 0, 4, 0),
+                levelCell("▭ غلظة الإطار", "fth", 1, 10, 3)), 72));
+        TextView lg2 = label("لون الإطار: 0 تلقائي (أبيض على السوداء · أخضر فاتح على البيضاء) · 1 أبيض · 2 أخضر · 3 أزرق · 4 أصفر", 11, false);
+        autosize(lg2, 8, 11);
+        lg2.setSingleLine(false);
+        frmCard.addView(fx(lg2, 34));
+
+        // --- POSITION ---
+        LinearLayout pos = glassCard("🧭 POSITION (تحريك الصورة كاملة)", 0xB3EFEBE9, 0xCCA1887F);
+        LinearLayout p1 = box(false);
+        p1.addView(hw(new View(this), 1f));
+        p1.addView(hw(stepBtn("▲", "py", -1, C_CREAM), 1f));
+        p1.addView(hw(new View(this), 1f));
+        LinearLayout p2 = box(false);
+        LinearLayout pinfo = box(true);
+        pinfo.setBackground(shape(0xCCFFFFFF, 0xFFA1887F, 14, 1));
+        TextView pv = valView("py", 16), ph = valView("px", 16);
+        pv.setTextColor(INK); ph.setTextColor(INK);
+        TextView lv = label("↕", 12, true), lh = label("↔", 12, true);
+        LinearLayout pvr = box(false), phr = box(false);
+        pvr.addView(lv, new LinearLayout.LayoutParams(0, -1, 1f)); pvr.addView(pv, new LinearLayout.LayoutParams(0, -1, 1f));
+        phr.addView(lh, new LinearLayout.LayoutParams(0, -1, 1f)); phr.addView(ph, new LinearLayout.LayoutParams(0, -1, 1f));
+        pinfo.addView(pvr, new LinearLayout.LayoutParams(-1, 0, 1f));
+        pinfo.addView(phr, new LinearLayout.LayoutParams(-1, 0, 1f));
+        p2.addView(hw(stepBtn("◀", "px", -1, C_CREAM), 1f));
+        p2.addView(hw(pinfo, 1f));
+        p2.addView(hw(stepBtn("▶", "px", 1, C_CREAM), 1f));
+        LinearLayout p3 = box(false);
+        p3.addView(hw(new View(this), 1f));
+        p3.addView(hw(stepBtn("▼", "py", 1, C_CREAM), 1f));
+        p3.addView(hw(new View(this), 1f));
+        LinearLayout[] ps = {p1, p2, p3};
+        for (LinearLayout rr : ps) {
+            for (int j = 0; j < 3; j++) {
+                View ch = rr.getChildAt(j);
+                if (ch instanceof Button) autosize((Button) ch, 14, 30);
+            }
+            pos.addView(fx(rr, 52));
+        }
+        pos.addView(fx(gbtn("🎯 رجّع البوزيشن للوسط", C_PINK, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("px", 0); setLevel("py", 0); }
+        }), 46));
+
+        // --- إيموجي متحركة ---
+        LinearLayout emo = glassCard("✨ إيموجي متحركة (5 ثواني وتختفي)", 0xB3FFF8E1, 0xCCFFB300);
+        emo.addView(fx(gbtn("🎲 مفاجأة! كل ضغطة حركة جديدة", C_ORANGE, ctl("fx")), 58));
+        int total = FxView.SCENES.length;
+        for (int rowStart = 0; rowStart < total; rowStart += 6) {
+            LinearLayout er = box(false);
+            for (int j = 0; j < 6; j++) {
+                int idx = rowStart + j;
+                if (idx < total) {
+                    Button eb = gbtn(FxView.SCENES[idx].em[0], C_CREAM, ctl("fx" + idx));
+                    autosize(eb, 14, 28);
+                    er.addView(hw(eb, 1f));
+                } else {
+                    er.addView(hw(new View(this), 1f));
+                }
+            }
+            emo.addView(fx(er, 46));
+        }
+
         // ===== 7) الأسفل: تغيير الوضع =====
         Button modeBtn = gbtn("⚙️ تغيير الوضع (هاتف / TV Box)", C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) {
@@ -689,6 +828,12 @@ public class SenderActivity extends Activity {
         addCard(content, vset);
         addCard(content, left);
         addCard(content, disp);
+        addCard(content, brd);
+        addCard(content, frame);
+        addCard(content, ks);
+        addCard(content, frmCard);
+        addCard(content, pos);
+        addCard(content, emo);
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
         ml.setMargins(0, dp(10), 0, 0);
         content.addView(modeBtn, ml);
@@ -932,7 +1077,95 @@ public class SenderActivity extends Activity {
         List<TextView> l = lvlViews.get(key);
         int[] rg = lvlRange.get(key);
         if (l == null || rg == null) return;
-        for (TextView t : l) t.setText(v + "/" + rg[1]);
+        boolean plain = PLAIN.contains("," + key + ",");
+        for (TextView t : l) t.setText(plain ? String.valueOf(v) : v + "/" + rg[1]);
+        if ("brd".equals(key) && brdBtn != null) brdBtn.setText(brdText());
+        if ("kinv".equals(key) && kinvBtn != null) kinvBtn.setText(kinvText());
+        if ("frm".equals(key) && frmBtn != null) frmBtn.setText(frmText());
+    }
+
+    // ---- keystone: أوضاع جاهزة (الوسط = الأساسي مستقيم) ----
+    private static final String[] KNAMES = {"✅ الأساسي (مستقيم)", "⏢ الأعلى أعرض", "⏣ الأسفل أعرض", "◁ اليمين أطول", "▷ اليسار أطول"};
+    private Button ksBtn;
+
+    private String ksText() {
+        return "🔷 Keystone\n" + KNAMES[sp.getInt("s_kmode", 0)] + "  (اضغط للتالي)";
+    }
+
+    private void applyKMode(int m) {
+        sp.edit().putInt("s_kmode", m).commit();
+        int s = sp.getInt("s_ks", 5) * 2;
+        setLevel("kv", m == 1 ? s : m == 2 ? -s : 0);
+        setLevel("kh", m == 3 ? s : m == 4 ? -s : 0);
+        setLevel("kr", 0);
+        if (ksBtn != null) ksBtn.setText(ksText());
+    }
+
+    private static final String PLAIN = ",kv,kh,kr,px,py,bw,cmw,fullw,";
+    private Button frmBtn;
+
+    private String frmText() {
+        return "🖼 إطار السبورة\n" + (sp.getInt("s_frm", 0) == 1 ? "مفعل ✅" : "ملغى (اضغط للتفعيل)");
+    }
+
+    // تسجيل مستوى جديد (يتحفظ ويتبعت ويتجبد من TV Box بحال الباقي)
+    private void regLevel(String key, int min, int max, int def) {
+        lvlRange.put(key, new int[]{min, max});
+        lvlDef.put(key, def);
+        List<TextView> l = lvlViews.get(key);
+        if (l == null) { l = new ArrayList<TextView>(); lvlViews.put(key, l); }
+    }
+
+    private TextView valView(String key, int sizeSp) {
+        TextView val = label(String.valueOf(sp.getInt("s_" + key, lvlDef.get(key))), sizeSp, true);
+        lvlViews.get(key).add(val);
+        return val;
+    }
+
+    // زر سهم: ضغطة = خطوة، والضغط المستمر كيعاود
+    private Button stepBtn(String text, final String key, final int delta, int tint) {
+        final Runnable[] loop = new Runnable[1];
+        loop[0] = new Runnable() {
+            @Override public void run() {
+                setLevel(key, sp.getInt("s_" + key, lvlDef.get(key)) + delta);
+                ui.postDelayed(loop[0], 160);
+            }
+        };
+        Button bt = gbtn(text, tint, null);
+        bt.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                switch (e.getAction()) {
+                    case MotionEvent.ACTION_DOWN: v.setPressed(true); loop[0].run(); return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL: v.setPressed(false); ui.removeCallbacks(loop[0]); return true;
+                }
+                return false;
+            }
+        });
+        return bt;
+    }
+
+    private LinearLayout stepRow(String title, String key, String minusTxt, String plusTxt, int tint) {
+        LinearLayout r = box(false);
+        LinearLayout mid = box(true);
+        mid.setBackground(shape(0xCCFFFFFF, 0xFF93B4F5, 14, 1));
+        TextView lb = label(title, 11, true);
+        autosize(lb, 8, 12);
+        mid.addView(lb, new LinearLayout.LayoutParams(-1, 0, 0.8f));
+        mid.addView(valView(key, 20), new LinearLayout.LayoutParams(-1, 0, 1f));
+        r.addView(hw(stepBtn(minusTxt, key, -1, tint), 1.1f));
+        r.addView(hw(mid, 1f));
+        r.addView(hw(stepBtn(plusTxt, key, 1, tint), 1.1f));
+        return r;
+    }
+
+    private String brdText() {
+        int v = sp.getInt("s_brd", 0);
+        return "🖍 السبورة\n" + (v == 1 ? "سوداء ⚫ مفعلة" : v == 2 ? "خضراء 🟢 مفعلة" : "ملغى (اضغط للتفعيل)");
+    }
+
+    private String kinvText() {
+        return "🔁 عكس اتجاه الأسهم\n" + (sp.getInt("s_kinv", 0) == 1 ? "مفعل ✅" : "ملغى");
     }
 
     private void setWeight(View v, float w) {
@@ -1031,6 +1264,11 @@ public class SenderActivity extends Activity {
         sp.edit().putInt("s_" + key, v).putBoolean("s_dirty", true).commit();
         showLvl(key, v);
         sendCmd(key + ":" + v);
+        if ("ks".equals(key) && sp.getInt("s_kmode", 0) != 0) applyKMode(sp.getInt("s_kmode", 0));
+        if ("cmw".equals(key) || "fullw".equals(key)) {
+            int full = Math.max(1, sp.getInt("s_fullw", 100));
+            setLevel("bw", Math.round(sp.getInt("s_cmw", 93) * 1000f / full));
+        }
     }
 
     private void preset(int fit, int bri, int con, int sat, int txt, int sha) {
