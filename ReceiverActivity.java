@@ -197,7 +197,7 @@ public class ReceiverActivity extends Activity {
         panelOff = sp.getBoolean("v_paneloff", false);
         glass = sp.getInt("l_glass", 1);
         liveMode = sp.getInt("l_live", 0);
-        boardMode = sp.getInt("l_brd", 0);
+        boardMode = 0;
         lvlBch = sp.getInt("l_bch", 8);
         lvlBcn = sp.getInt("l_bcn", 6);
         lvlBbg = sp.getInt("l_bbg", 0);
@@ -213,7 +213,7 @@ public class ReceiverActivity extends Activity {
         lvlBw = sp.getInt("l_bw", 930);
         lvlFth = sp.getInt("l_fth", 3);
         autoRotTv = sp.getInt("l_arot", 0) == 1;
-        userZoom = Math.max(0.5f, Math.min(6f, sp.getFloat("l_zoom", 1f)));
+        userZoom = Math.max(0.5f, Math.min(5f, sp.getFloat("l_zoom", 1f)));
         lvlCmw = sp.getInt("l_cmw", 93);
         lvlFullw = sp.getInt("l_fullw", 100);
         lvlKs = sp.getInt("l_ks", 5);
@@ -1727,7 +1727,7 @@ public class ReceiverActivity extends Activity {
 
     private void newLevel(String k, int n, SharedPreferences.Editor ed) {
         String lab = "";
-        if ("brd".equals(k)) { boardMode = clamp(n, 0, 2); ed.putInt("l_brd", boardMode); lab = boardMode == 0 ? "🧑‍🏫 السبورة: ملغى" : boardMode == 1 ? "🧑‍🏫 سبورة سوداء ⚫" : "🧑‍🏫 سبورة خضراء 🟢"; }
+        if ("brd".equals(k)) { boardMode = 0; ed.putInt("l_brd", boardMode); lab = boardMode == 0 ? "🧑‍🏫 السبورة: ملغى" : boardMode == 1 ? "🧑‍🏫 سبورة سوداء ⚫" : "🧑‍🏫 سبورة خضراء 🟢"; }
         else if ("bch".equals(k)) { lvlBch = clamp(n, 1, 10); ed.putInt("l_bch", lvlBch); lab = "💡 إضاءة الطباشير: " + lvlBch + "/10"; }
         else if ("bcn".equals(k)) { lvlBcn = clamp(n, 1, 10); ed.putInt("l_bcn", lvlBcn); lab = "◐ تباين السبورة: " + lvlBcn + "/10"; }
         else if ("bbg".equals(k)) { lvlBbg = clamp(n, 0, 10); ed.putInt("l_bbg", lvlBbg); lab = "🌫 توهج الورقة: " + lvlBbg + "/10"; }
@@ -1987,54 +1987,11 @@ public class ReceiverActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
-    // ---------------- نوم / استيقاظ TV Box (باش الداتاشو يفقد الإشارة ويطفي بوحدو) ----------------
-    private android.os.PowerManager.WakeLock sleepLock;
-
-    public static class TvAdmin extends android.app.admin.DeviceAdminReceiver {
-    }
-
-    private void sleepNow() {
-        try {
-            // CPU يبقى خدام باش نقدرو نفيقوه من الهاتف (الواي فاي lock ديجا كاين)
-            if (sleepLock == null) {
-                sleepLock = ((android.os.PowerManager) getSystemService(POWER_SERVICE))
-                        .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "tvlink:sleep");
-                sleepLock.setReferenceCounted(false);
-            }
-            if (!sleepLock.isHeld()) sleepLock.acquire();
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            android.app.admin.DevicePolicyManager dpm =
-                    (android.app.admin.DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
-            android.content.ComponentName cn = new android.content.ComponentName(this, TvAdmin.class);
-            if (dpm.isAdminActive(cn)) {
-                dpm.lockNow();   // الشاشة كتطفا => الداتاشو كيشوف "No Signal"
-            } else {
-                Toast.makeText(this, "فعّل صلاحية القفل (مرة وحدة) من TV Box", Toast.LENGTH_LONG).show();
-                Intent i = new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-                i.putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn);
-                startActivity(i);
-            }
-        } catch (Exception e) {
-            Toast.makeText(this, "تعذر النوم: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void wakeNow() {
-        try {
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                    | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                    | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
-            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-            android.os.PowerManager.WakeLock w = pm.newWakeLock(
-                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK
-                            | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "tvlink:wake");
-            w.acquire(5000);
-            if (sleepLock != null && sleepLock.isHeld()) sleepLock.release();
-            Intent i = new Intent(this, ReceiverActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(i);
-        } catch (Exception ignored) {}
+private static final float[] ZSTEPS = {0.5f,0.7f,0.9f,1f,1.25f,1.5f,1.75f,1.9f,2f,2.5f,3f,4f,5f};
+    private static float zNext(float z, int d) {
+        int i = 0;
+        for (int k = 0; k < ZSTEPS.length; k++) if (Math.abs(ZSTEPS[k] - z) < Math.abs(ZSTEPS[i] - z)) i = k;
+        return ZSTEPS[Math.max(0, Math.min(ZSTEPS.length - 1, i + d))];
     }
 
     private void control(String cmd) {
@@ -2046,15 +2003,6 @@ public class ReceiverActivity extends Activity {
                 break;
             case "beep":
                 beep();
-                break;
-            case "sleep":
-                Toast.makeText(this, "😴 TV Box غادي ينعس من بعد 5 ثواني", Toast.LENGTH_SHORT).show();
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
-                    @Override public void run() { sleepNow(); }
-                }, 5000);
-                break;
-            case "wake":
-                wakeNow();
                 break;
             case "perm":
                 runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });
@@ -2098,13 +2046,13 @@ public class ReceiverActivity extends Activity {
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).commit();
                 break;
             case "zin":
-                zoom = Math.min(6f, Math.round((zoom + 0.5f) * 2f) / 2f);
+                zoom = zNext(zoom, 1);
                 if (!examFull) { userZoom = zoom; saveZoom(); }
                 applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zout":
-                zoom = Math.max(0.5f, Math.round((zoom - 0.5f) * 2f) / 2f);
+                zoom = zNext(zoom, -1);
                 if (!examFull) { userZoom = zoom; saveZoom(); }
                 applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();

@@ -89,7 +89,7 @@ public class SenderActivity extends Activity {
         dsMode = sp.getInt("dsmode", 0);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
-        zl = Math.max(0.5f, Math.min(6f, sp.getFloat("s_zoom", 1f)));
+        zl = Math.max(0.5f, Math.min(5f, sp.getFloat("s_zoom", 1f)));
         hq = sp.getBoolean("hq", true);
         // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
         if (!sp.getBoolean("def0v1", false)) {
@@ -577,14 +577,9 @@ public class SenderActivity extends Activity {
             }
         });
         LinearLayout ex = box(false);
-        ex.addView(hw(gbtn("🔊\nMAX", C_BLUE, ctl("volmax")), 1f));
         ex.addView(hw(gbtn("🖼\nصورة", C_PINK, ctl("imode")), 1f));
         ex.addView(hw(qBtn, 1f));
         center.addView(fx(ex, 54));
-        LinearLayout slp = box(false);
-        slp.addView(hw(gbtn("😴\nنوم TV Box", C_ORANGE, ctl("sleep")), 1f));
-        slp.addView(hw(gbtn("☀️\nاستيقاظ", C_GREEN, ctl("wake")), 1f));
-        center.addView(fx(slp, 54));
         center.addView(fx(gbtn("🔄  تدوير الصورة فالداتا شو (الهاتف ما كيتحركش)", C_CYAN, ctl("rot")), 50));
 
         // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====
@@ -674,37 +669,12 @@ public class SenderActivity extends Activity {
         disp.addView(fx(gbtn("🔊 اختبار الصوت", C_BLUE, ctl("beep")), 46));
 
         // ===== 6.5) إضافات جديدة (فالأسفل): سبورة · كادر · بوزيشن · إيموجي =====
-        regLevel("brd", 0, 2, 0);
         regLevel("kinv", 0, 1, 0);
         regLevel("kv", -30, 30, 0);
         regLevel("kh", -30, 30, 0);
         regLevel("kr", -30, 30, 0);
         regLevel("px", -30, 30, 0);
         regLevel("py", -30, 30, 0);
-
-        // --- السبورة السوداء / الخضراء ---
-        LinearLayout brd = glassCard("🖍 السبورة السوداء / الخضراء (الامتحان بطباشير)", 0xB3ECEFF1, 0xCC607D8B);
-        brdBtn = gbtn(brdText(), C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) { setLevel("brd", (sp.getInt("s_brd", 0) + 1) % 3); }
-        });
-        brd.addView(fx(brdBtn, 56));
-        brd.addView(fx(rowOf(
-                gbtn("⚫\nسوداء", C_SLATE, new View.OnClickListener() {
-                    @Override public void onClick(View v) { setLevel("brd", 1); setLevel("bch", 8); setLevel("bcn", 6); setLevel("bbg", 0); setLevel("btn", 0); }
-                }),
-                gbtn("🟢\nخضراء", C_GREEN, new View.OnClickListener() {
-                    @Override public void onClick(View v) { setLevel("brd", 2); setLevel("bch", 8); setLevel("bcn", 6); setLevel("bbg", 0); setLevel("btn", 1); }
-                }),
-                gbtn("⬜\nملغى", C_CREAM, new View.OnClickListener() {
-                    @Override public void onClick(View v) { setLevel("brd", 0); }
-                })), 54));
-        brd.addView(fx(rowOf(levelCell("💡 إضاءة الطباشير", "bch", 1, 10, 8),
-                levelCell("◐ تباين السبورة", "bcn", 1, 10, 6)), 72));
-        brd.addView(fx(rowOf(levelCell("🌫 توهج الورقة", "bbg", 0, 10, 0),
-                levelCell("🎨 لون الطباشير", "btn", 0, 4, 0)), 72));
-        TextView legend = label("لون الطباشير: 0 أبيض · 1 كريمي · 2 أصفر · 3 أزرق · 4 وردي", 11, false);
-        autosize(legend, 8, 12);
-        brd.addView(fx(legend, 22));
 
         // --- الكادر ---
         LinearLayout frame = glassCard("📐 الكادر (باش يكون مقاد ومتوازي)", 0xB3E8EAF6, 0xCC7986CB);
@@ -840,7 +810,6 @@ public class SenderActivity extends Activity {
         addCard(content, vset);
         addCard(content, left);
         addCard(content, disp);
-        addCard(content, brd);
         addCard(content, frame);
         addCard(content, ks);
         addCard(content, frmCard);
@@ -849,7 +818,10 @@ public class SenderActivity extends Activity {
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
         ml.setMargins(0, dp(10), 0, 0);
         content.addView(modeBtn, ml);
-        addCard(content, av);   // آخر التطبيق بالأسفل
+        addCard(content, av);
+        LinearLayout.LayoutParams mxl = new LinearLayout.LayoutParams(-1, dp(56));
+        mxl.setMargins(0, dp(10), 0, 0);
+        content.addView(gbtn("🔊  MAX", C_BLUE, ctl("volmax")), mxl);   // آخر مكان فالتطبيق
 
         // ===== الخلفية: تدرج + فقاعات ملونة كتعطي عمق للزجاج =====
         ScrollView sv = new ScrollView(this);
@@ -1530,7 +1502,7 @@ public class SenderActivity extends Activity {
                 else if ("spd".equals(k)) ed.putInt("s_spd", v);
                 else if ("inv".equals(k)) ed.putInt("s_inv", v);
                 else if ("kmode".equals(k)) ed.putInt("s_kmode", v);
-                else if ("zm".equals(k)) { zl = Math.max(0.5f, Math.min(6f, v / 10f)); ed.putFloat("s_zoom", zl); }
+                else if ("zm".equals(k)) { zl = Math.max(0.5f, Math.min(5f, v / 10f)); ed.putFloat("s_zoom", zl); }
             }
             ed.commit();
             ui.post(new Runnable() {
@@ -1592,13 +1564,19 @@ public class SenderActivity extends Activity {
     private Button zBtn;
     private float zl = 1f;
 
+    private static final float[] ZSTEPS = {0.5f,0.7f,0.9f,1f,1.25f,1.5f,1.75f,1.9f,2f,2.5f,3f,4f,5f};
+    private static float zNext(float z, int d) {
+        int i = 0;
+        for (int k = 0; k < ZSTEPS.length; k++) if (Math.abs(ZSTEPS[k] - z) < Math.abs(ZSTEPS[i] - z)) i = k;
+        return ZSTEPS[Math.max(0, Math.min(ZSTEPS.length - 1, i + d))];
+    }
     private String zText() {
         return (zl == (int) zl ? String.valueOf((int) zl) : String.valueOf(zl)) + "x";
     }
 
     private void sendCmd(final String cmd) {
-        if ("zin".equals(cmd)) zl = Math.min(6f, zl + 0.5f);
-        else if ("zout".equals(cmd)) zl = Math.max(0.5f, zl - 0.5f);
+        if ("zin".equals(cmd)) zl = zNext(zl, 1);
+        else if ("zout".equals(cmd)) zl = zNext(zl, -1);
         else if ("zreset".equals(cmd)) zl = 1f;
         if ("zin".equals(cmd) || "zout".equals(cmd) || "zreset".equals(cmd)) sp.edit().putFloat("s_zoom", zl).commit();   // التكبير كيتحفظ
         if (zBtn != null && cmd.startsWith("z")) ui.post(new Runnable() {
