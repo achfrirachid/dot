@@ -89,6 +89,7 @@ public class SenderActivity extends Activity {
         dsMode = sp.getInt("dsmode", 0);
         autoRot = sp.getBoolean("autorot", true);
         glassOn = sp.getInt("s_glass", 1) == 1;
+        zl = Math.max(0.5f, Math.min(6f, sp.getFloat("s_zoom", 1f)));
         hq = sp.getBoolean("hq", true);
         // مرة وحدة: القيم الافتراضية القديمة (غلظة 1، حدة 7) كتولي 0. بعدها كلشي كيبقى كيف خليتيه
         if (!sp.getBoolean("def0v1", false)) {
@@ -546,7 +547,7 @@ public class SenderActivity extends Activity {
 
         LinearLayout zr = box(false);
         zr.addView(hw(holdBtn("−", "zout", C_ORANGE, 350), 1f));
-        zBtn = gbtn("1x", C_ORANGE, ctl("zreset"));
+        zBtn = gbtn(zText(), C_ORANGE, ctl("zreset"));
         zr.addView(hw(zBtn, 0.8f));
         zr.addView(hw(holdBtn("+", "zin", C_ORANGE, 350), 1f));
         center.addView(fx(zr, 48));
@@ -581,9 +582,6 @@ public class SenderActivity extends Activity {
         ex.addView(hw(qBtn, 1f));
         center.addView(fx(ex, 54));
         center.addView(fx(gbtn("🔄  تدوير الصورة فالداتا شو (الهاتف ما كيتحركش)", C_CYAN, ctl("rot")), 50));
-        // الصوت وأزرار الفيديو (±10 ثواني) فالأسفل
-        center.addView(fx(vr, 54));
-        center.addView(fx(mr, 54));
 
         // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====
         LinearLayout vset = glassCard("🎥 ضبط الفيديو (اضغط الرقم واكتبه)", 0xB3FFF3C4, 0xCCF59E0B);
@@ -813,11 +811,26 @@ public class SenderActivity extends Activity {
             }
         });
 
+        // ===== بطاقة آخر التطبيق: الصوت + الفيديو (±10 ثواني) + السرعة =====
+        final LinearLayout vbarView = buildVbar();   // كيخلق tSpd
+        LinearLayout av = glassCard("🔊 الصوت والفيديو (±10 ثواني · السرعة)", 0xB3E3F2FD, 0xCC64B5F6);
+        av.addView(fx(vr, 54));
+        av.addView(fx(mr, 54));
+        LinearLayout spr = box(false);
+        spr.addView(hw(gbtn("−", C_AMBER, new View.OnClickListener() {
+            @Override public void onClick(View v) { stepSpeed(-1); }
+        }), 0.8f));
+        spr.addView(hw(tSpd, 1f));
+        spr.addView(hw(gbtn("+", C_AMBER, new View.OnClickListener() {
+            @Override public void onClick(View v) { stepSpeed(1); }
+        }), 0.8f));
+        av.addView(fx(spr, 54));
+
         // ===== الترتيب من الأعلى للأسفل =====
         LinearLayout content = box(true);
         content.setPadding(dp(8), dp(8), dp(8), dp(24));
         content.addView(top, new LinearLayout.LayoutParams(-1, -2));
-        content.addView(buildVbar(), new LinearLayout.LayoutParams(-1, -2));
+        content.addView(vbarView, new LinearLayout.LayoutParams(-1, -2));
         addCard(content, send);
         addCard(content, center);
         addCard(content, vset);
@@ -832,6 +845,7 @@ public class SenderActivity extends Activity {
         LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(-1, dp(48));
         ml.setMargins(0, dp(10), 0, 0);
         content.addView(modeBtn, ml);
+        addCard(content, av);   // آخر التطبيق بالأسفل
 
         // ===== الخلفية: تدرج + فقاعات ملونة كتعطي عمق للزجاج =====
         ScrollView sv = new ScrollView(this);
@@ -912,19 +926,10 @@ public class SenderActivity extends Activity {
         r3.setOrientation(LinearLayout.HORIZONTAL);
         r3.setVisibility(View.GONE);   // كتبان بزر 🎨 وكتخبى بعد 2 تواني
         LinearLayout r2 = box(false);
-        r2.addView(hw(gbtn("⏪ 10", C_BLUE, ctl("back")), 1f));
-        r2.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 1f));
-        r2.addView(hw(gbtn("10 ⏩", C_BLUE, ctl("fwd")), 1f));
-        r2.addView(hw(gbtn("−", C_AMBER, new View.OnClickListener() {
-            @Override public void onClick(View v) { stepSpeed(-1); }
-        }), 0.8f));
+        // أزرار ±10 ثواني والسرعة والصوت انتقلت لبطاقة "الصوت والفيديو" فآخر التطبيق
         tSpd = gbtn(spdText(), C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) { setSpeed(10); }
         });
-        r2.addView(hw(tSpd, 1f));
-        r2.addView(hw(gbtn("+", C_AMBER, new View.OnClickListener() {
-            @Override public void onClick(View v) { stepSpeed(1); }
-        }), 0.8f));
         r2.addView(hw(gbtn("🎨", C_SLATE, new View.OnClickListener() {
             @Override public void onClick(View v) {
                 r3.setVisibility(r3.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
@@ -1288,6 +1293,7 @@ public class SenderActivity extends Activity {
                 }
                 sendCmd("glass:" + (glassOn ? 1 : 0));
                 sendCmd("kmode:" + sp.getInt("s_kmode", 0));
+                sendCmd("zm:" + Math.round(zl * 10));
                 sendCmd("spd:" + sp.getInt("s_spd", 10));
                 sendCmd("inv:" + sp.getInt("s_inv", 0));
                 sendCmd(hq ? "qh" : "ql");
@@ -1520,6 +1526,7 @@ public class SenderActivity extends Activity {
                 else if ("spd".equals(k)) ed.putInt("s_spd", v);
                 else if ("inv".equals(k)) ed.putInt("s_inv", v);
                 else if ("kmode".equals(k)) ed.putInt("s_kmode", v);
+                else if ("zm".equals(k)) { zl = Math.max(0.5f, Math.min(6f, v / 10f)); ed.putFloat("s_zoom", zl); }
             }
             ed.commit();
             ui.post(new Runnable() {
@@ -1532,6 +1539,7 @@ public class SenderActivity extends Activity {
                     if (tSpd != null) tSpd.setText(spdText());
                     if (bBtn != null) bBtn.setText(invText());
                     if (ksBtn != null) ksBtn.setText(ksText());
+                    if (zBtn != null) zBtn.setText(zText());
                 }
             });
             return true;
@@ -1580,12 +1588,17 @@ public class SenderActivity extends Activity {
     private Button zBtn;
     private float zl = 1f;
 
+    private String zText() {
+        return (zl == (int) zl ? String.valueOf((int) zl) : String.valueOf(zl)) + "x";
+    }
+
     private void sendCmd(final String cmd) {
         if ("zin".equals(cmd)) zl = Math.min(6f, zl + 0.5f);
         else if ("zout".equals(cmd)) zl = Math.max(0.5f, zl - 0.5f);
         else if ("zreset".equals(cmd)) zl = 1f;
+        if ("zin".equals(cmd) || "zout".equals(cmd) || "zreset".equals(cmd)) sp.edit().putFloat("s_zoom", zl).commit();   // التكبير كيتحفظ
         if (zBtn != null && cmd.startsWith("z")) ui.post(new Runnable() {
-            @Override public void run() { zBtn.setText((zl == (int) zl ? String.valueOf((int) zl) : String.valueOf(zl)) + "x"); }
+            @Override public void run() { zBtn.setText(zText()); }
         });
         if ("stop".equals(cmd)) releaseCastLocks();
         if (cmdCode == null) cmdCode = code();

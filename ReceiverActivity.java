@@ -148,6 +148,7 @@ public class ReceiverActivity extends Activity {
     // عرض شاشة الهاتف: 0 = ملء (تمديد) / 1 = تغطية (قص) / 2 = النسبة الأصلية
     private ImageView liveView;
     private int liveMode = 0;
+    private float userZoom = 1f;   // آخر تكبير اختاره المستخدم: كيتحفظ وكيبقى بعد الإغلاق
     private boolean autoRotTv = false;   // تدوير تلقائي داخل TV Box فقط (ما عندو علاقة بالهاتف)
     private int lvlCmw = 93, lvlFullw = 100, lvlKs = 5, lvlKmode = 0;   // إعدادات الهاتف كنخزنوها هنا حتى هي باش ما تضيعش
     private Rect cropRect, candRect;
@@ -212,6 +213,7 @@ public class ReceiverActivity extends Activity {
         lvlBw = sp.getInt("l_bw", 930);
         lvlFth = sp.getInt("l_fth", 3);
         autoRotTv = sp.getInt("l_arot", 0) == 1;
+        userZoom = Math.max(0.5f, Math.min(6f, sp.getFloat("l_zoom", 1f)));
         lvlCmw = sp.getInt("l_cmw", 93);
         lvlFullw = sp.getInt("l_fullw", 100);
         lvlKs = sp.getInt("l_ks", 5);
@@ -965,7 +967,7 @@ public class ReceiverActivity extends Activity {
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv
                         + ",brd=" + boardMode + ",bch=" + lvlBch + ",bcn=" + lvlBcn + ",bbg=" + lvlBbg + ",btn=" + lvlBtn
                         + ",kv=" + lvlKv + ",kh=" + lvlKh + ",kr=" + lvlKr + ",px=" + lvlPx + ",py=" + lvlPy + ",kinv=" + lvlKinv + ",frm=" + lvlFrm + ",fcl=" + lvlFcl + ",bw=" + lvlBw + ",fth=" + lvlFth
-                        + ",arot=" + (autoRotTv ? 1 : 0) + ",cmw=" + lvlCmw + ",fullw=" + lvlFullw + ",ks=" + lvlKs + ",kmode=" + lvlKmode);
+                        + ",zm=" + Math.round(userZoom * 10) + ",arot=" + (autoRotTv ? 1 : 0) + ",cmw=" + lvlCmw + ",fullw=" + lvlFullw + ",ks=" + lvlKs + ",kmode=" + lvlKmode);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
             } else if ("/ctl".equals(p)) {
@@ -1823,6 +1825,16 @@ public class ReceiverActivity extends Activity {
             return;
         }
         else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.commit(); refreshSettings(); return; }
+        else if ("zm".equals(k)) {
+            userZoom = clamp(n, 5, 60) / 10f;
+            saveZoom();
+            if (!examFull && root != null) {
+                zoom = userZoom;
+                applyZoom();
+                try { if (pdf != null) renderPage(); else image.refreshQuality(); } catch (Throwable ignored) {}
+            }
+            return;
+        }
         else if ("arot".equals(k)) {
             autoRotTv = n > 0;
             ed.putInt("l_arot", autoRotTv ? 1 : 0);
@@ -1953,7 +1965,9 @@ public class ReceiverActivity extends Activity {
         } catch (Throwable ignored) {}
     }
 
-    private void resetZoom() { zoom = 1f; float ox = offX * localW(); panX = ox * COS[rotQ]; panY = ox * SIN[rotQ]; applyZoom(); image.refreshQuality(); }
+    private void saveZoom() { getSharedPreferences("tvlink", MODE_PRIVATE).edit().putFloat("l_zoom", userZoom).commit(); }
+
+    private void resetZoom() { zoom = userZoom; float ox = offX * localW(); panX = ox * COS[rotQ]; panY = ox * SIN[rotQ]; applyZoom(); image.refreshQuality(); }
 
     // كيتطلب من الهاتف: أول ضغطة = إذن الظهور فوق التطبيقات، التانية = البطارية، وبعدها كلشي مفعل
     private void askNextPermission() {
@@ -2025,11 +2039,15 @@ public class ReceiverActivity extends Activity {
                 getSharedPreferences("tvlink", MODE_PRIVATE).edit().putBoolean("l_vfill", video.fill).commit();
                 break;
             case "zin":
-                zoom = Math.min(6f, Math.round((zoom + 0.5f) * 2f) / 2f); applyZoom();
+                zoom = Math.min(6f, Math.round((zoom + 0.5f) * 2f) / 2f);
+                if (!examFull) { userZoom = zoom; saveZoom(); }
+                applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "zout":
-                zoom = Math.max(0.5f, Math.round((zoom - 0.5f) * 2f) / 2f); applyZoom();
+                zoom = Math.max(0.5f, Math.round((zoom - 0.5f) * 2f) / 2f);
+                if (!examFull) { userZoom = zoom; saveZoom(); }
+                applyZoom();
                 if (pdf != null) renderPage(); else image.refreshQuality();
                 break;
             case "rot":
@@ -2043,6 +2061,7 @@ public class ReceiverActivity extends Activity {
                 }
                 break;
             case "zreset":
+                userZoom = 1f; saveZoom();
                 resetZoom();
                 if (examFull) {   // وضع الامتحان: الرجوع للوضع الأصلي كيرجع الورقة تملا العرض (بلا ما تتقطع الكتابة)
                     examFresh = true;
