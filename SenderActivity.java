@@ -44,6 +44,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -102,7 +103,7 @@ public class SenderActivity extends Activity {
         buildUi();
         applyAutoRotate();
         Intent in = getIntent();
-        if (in != null && Intent.ACTION_SEND.equals(in.getAction())) {
+        if (in != null && Intent.ACTION_SEND.equals(in.getAction()) && b == null) {
             handle(in);
         } else {
             connect();   // ربط تلقائي بالكود المحفوظ
@@ -554,13 +555,11 @@ public class SenderActivity extends Activity {
         vr.addView(hw(holdBtn("🔉\n−", "voldown", C_BLUE, 300), 1f));
         vr.addView(hw(holdBtn("🔇", "mute", C_BLUE, 0), 0.8f));
         vr.addView(hw(holdBtn("🔊\n+", "volup", C_BLUE, 300), 1f));
-        center.addView(fx(vr, 54));
 
         LinearLayout mr = box(false);
         mr.addView(hw(gbtn("⏪\n10ث", C_BLUE, ctl("back")), 1f));
         mr.addView(hw(gbtn("⏯", C_GREEN, ctl("pause")), 0.9f));
         mr.addView(hw(gbtn("10ث\n⏩", C_BLUE, ctl("fwd")), 1f));
-        center.addView(fx(mr, 54));
 
         LinearLayout pg = box(false);
         pg.addView(hw(gbtn("◀\nصفحة", C_AMBER, ctl("prev")), 1f));
@@ -582,6 +581,9 @@ public class SenderActivity extends Activity {
         ex.addView(hw(qBtn, 1f));
         center.addView(fx(ex, 54));
         center.addView(fx(gbtn("🔄  تدوير الصورة فالداتا شو (الهاتف ما كيتحركش)", C_CYAN, ctl("rot")), 50));
+        // الصوت وأزرار الفيديو (±10 ثواني) فالأسفل
+        center.addView(fx(vr, 54));
+        center.addView(fx(mr, 54));
 
         // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====
         LinearLayout vset = glassCard("🎥 ضبط الفيديو (اضغط الرقم واكتبه)", 0xB3FFF3C4, 0xCCF59E0B);
@@ -653,13 +655,9 @@ public class SenderActivity extends Activity {
                 setStatus(compat ? "وضع التوافق مفعل. وقف العرض وبداه من جديد." : "وضع التوافق ملغى. وقف العرض وبداه من جديد.");
             }
         });
-        rBtn = gbtn(rotText(), C_SLATE, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                autoRot = !autoRot;
-                sp.edit().putBoolean("autorot", autoRot).commit();
-                rBtn.setText(rotText());
-                applyAutoRotate();
-            }
+        regLevel("arot", 0, 1, 0);
+        rBtn = gbtn(rotText(), C_CYAN, new View.OnClickListener() {
+            @Override public void onClick(View v) { setLevel("arot", 1 - sp.getInt("s_arot", 0)); }
         });
         disp.addView(fx(rowOf(cBtn, rBtn), 58));
         gBtn = gbtn(glassText(), C_PINK, new View.OnClickListener() {
@@ -719,7 +717,7 @@ public class SenderActivity extends Activity {
         })), 56));
 
         // --- Keystone (أوضاع جاهزة) + مسطرة 90 سم ---
-        LinearLayout ks = glassCard("🔷 Keystone + مسطرة السبورة (93 سم)", 0xB3E0F7FA, 0xCC00ACC1);
+        LinearLayout ks = glassCard("🔷 Keystone", 0xB3E0F7FA, 0xCC00ACC1);
         ksBtn = gbtn(ksText(), C_CYAN, new View.OnClickListener() {
             @Override public void onClick(View v) { applyKMode((sp.getInt("s_kmode", 0) + 1) % 5); }
         });
@@ -732,7 +730,6 @@ public class SenderActivity extends Activity {
                 gbtn("◁\nاليمين أطول", C_AMBER, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(3); } }),
                 gbtn("▷\nاليسار أطول", C_AMBER, new View.OnClickListener() { @Override public void onClick(View v) { applyKMode(4); } })), 56));
         ks.addView(fx(levelCell("💪 قوة التصحيح", "ks", 1, 10, 5), 72));
-        ks.addView(fx(gbtn("📏 مسطرة 93 سم (تبان/تخبى)", C_PINK, ctl("ruler")), 52));
 
         // --- إطار السبورة (عرض 93 سم، الطول تلقائي) ---
         regLevel("frm", 0, 1, 0);
@@ -798,11 +795,14 @@ public class SenderActivity extends Activity {
         dsBtn1 = gbtn(dsText(1), C_GREEN, new View.OnClickListener() {
             @Override public void onClick(View v) { setDs(dsMode == 1 ? 0 : 1); }
         });
-        dsCard.addView(fx(dsBtn1, 66));
+        dsBtn1.setMaxLines(3);
+        dsCard.addView(fx(dsBtn1, 72));
         dsBtn2 = gbtn(dsText(2), C_PURPLE, new View.OnClickListener() {
             @Override public void onClick(View v) { setDs(dsMode == 2 ? 0 : 2); }
         });
-        dsCard.addView(fx(dsBtn2, 66));
+        dsBtn2.setMaxLines(3);
+        dsCard.addView(fx(dsBtn2, 72));
+        refreshDs();
 
         // ===== 7) الأسفل: تغيير الوضع =====
         Button modeBtn = gbtn("⚙️ تغيير الوضع (هاتف / TV Box)", C_PURPLE, new View.OnClickListener() {
@@ -1077,6 +1077,7 @@ public class SenderActivity extends Activity {
         if ("brd".equals(key) && brdBtn != null) brdBtn.setText(brdText());
         if ("kinv".equals(key) && kinvBtn != null) kinvBtn.setText(kinvText());
         if ("frm".equals(key) && frmBtn != null) frmBtn.setText(frmText());
+        if ("arot".equals(key) && rBtn != null) rBtn.setText(rotText());
     }
 
     // ---- keystone: أوضاع جاهزة (الوسط = الأساسي مستقيم) ----
@@ -1088,7 +1089,8 @@ public class SenderActivity extends Activity {
     }
 
     private void applyKMode(int m) {
-        sp.edit().putInt("s_kmode", m).commit();
+        sp.edit().putInt("s_kmode", m).putBoolean("s_dirty", true).commit();
+        sendCmd("kmode:" + m);
         int s = sp.getInt("s_ks", 5) * 2;
         setLevel("kv", m == 1 ? s : m == 2 ? -s : 0);
         setLevel("kh", m == 3 ? s : m == 4 ? -s : 0);
@@ -1262,7 +1264,13 @@ public class SenderActivity extends Activity {
         if ("ks".equals(key) && sp.getInt("s_kmode", 0) != 0) applyKMode(sp.getInt("s_kmode", 0));
         if ("cmw".equals(key) || "fullw".equals(key)) {
             int full = Math.max(1, sp.getInt("s_fullw", 100));
-            setLevel("bw", Math.round(sp.getInt("s_cmw", 93) * 1000f / full));
+            int cm = sp.getInt("s_cmw", 93);
+            int raw = Math.round(cm * 1000f / full);
+            setLevel("bw", raw);
+            String m = "📏 الإطار " + cm + " سم من " + full + " سم = " + (Math.max(500, Math.min(1000, raw)) / 10f) + "%";
+            if (raw > 1000) m += "\n⚠ الإطار أكبر من عرض الإسقاط (كيوقف عند 100%)";
+            if (sp.getInt("s_frm", 0) == 0) m += "\n⚠ إطار السبورة غير مفعل (فعّله باش يبان التغيير)";
+            toast(m);
         }
     }
 
@@ -1279,6 +1287,7 @@ public class SenderActivity extends Activity {
                     sendCmd(k + ":" + sp.getInt("s_" + k, lvlDef.get(k)));
                 }
                 sendCmd("glass:" + (glassOn ? 1 : 0));
+                sendCmd("kmode:" + sp.getInt("s_kmode", 0));
                 sendCmd("spd:" + sp.getInt("s_spd", 10));
                 sendCmd("inv:" + sp.getInt("s_inv", 0));
                 sendCmd(hq ? "qh" : "ql");
@@ -1510,6 +1519,7 @@ public class SenderActivity extends Activity {
                 else if ("q".equals(k)) ed.putBoolean("hq", v == 2);
                 else if ("spd".equals(k)) ed.putInt("s_spd", v);
                 else if ("inv".equals(k)) ed.putInt("s_inv", v);
+                else if ("kmode".equals(k)) ed.putInt("s_kmode", v);
             }
             ed.commit();
             ui.post(new Runnable() {
@@ -1521,6 +1531,7 @@ public class SenderActivity extends Activity {
                     if (qBtn != null) qBtn.setText(hq ? "🔍\nعالية" : "🔍\nعادية");
                     if (tSpd != null) tSpd.setText(spdText());
                     if (bBtn != null) bBtn.setText(invText());
+                    if (ksBtn != null) ksBtn.setText(ksText());
                 }
             });
             return true;
@@ -1634,21 +1645,46 @@ public class SenderActivity extends Activity {
     }
 
     private String dsText(int m) {
-        if (m == 1) return "🎯 تلقائي: أنسب جودة للداتاشو\n(تناسب جهازك بدون تعب)\n" + (dsMode == 1 ? "مفعل ✅" : "اضغط للتفعيل");
-        return "💎 صافية جدا (وضوح أقصى)\n(للسبورة البيضاء والامتحانات الملونة)\n" + (dsMode == 2 ? "مفعل ✅" : "اضغط للتفعيل");
+        boolean on = dsMode == m;
+        String head = m == 1 ? "🎯 تلقائي: أنسب جودة للداتاشو" : "💎 صافية جدا (وضوح أقصى)";
+        String sub = m == 1 ? "(تناسب جهازك بدون تعب)" : "(للسبورة البيضاء والامتحانات الملونة)";
+        return (on ? "✅ مفعل\n" : "") + head + "\n" + sub;
+    }
+
+    // الزر المفعل كيتلون ويبان فيه "✅ مفعل"، والباقي رمادي
+    private void refreshDs() {
+        if (dsBtn1 == null || dsBtn2 == null) return;
+        dsBtn1.setText(dsText(1));
+        dsBtn2.setText(dsText(2));
+        dsBtn1.setBackground(glassState(dsMode == 1 ? C_GREEN : C_SLATE));
+        dsBtn2.setBackground(glassState(dsMode == 2 ? C_PURPLE : C_SLATE));
+    }
+
+    private Toast tst;
+    private void toast(String m) {
+        try {
+            if (tst != null) tst.cancel();
+            tst = Toast.makeText(this, m, Toast.LENGTH_SHORT);
+            tst.show();
+        } catch (Exception ignored) {}
     }
 
     private void setDs(int m) {
         dsMode = m;
-        sp.edit().putInt("dsmode", m).commit();
-        dsBtn1.setText(dsText(1));
-        dsBtn2.setText(dsText(2));
-        // إلا العرض شغال كيتطبق فوراً بلا ما توقفو
-        try { startService(new Intent(this, ScreenService.class)
-                .setAction("level").putExtra("level", mlevel).putExtra("dsmode", dsMode)); } catch (Exception ignored) {}
-        setStatus(m == 0 ? "رجعنا للإعدادات القديمة." : m == 1
-                ? "✅ تم تفعيل الجودة المناسبة للداتاشو (XGA 1024×768 الأصلية)."
-                : "✅ تم تفعيل الجودة الصافية جداً.");
+        sp.edit().putInt("dsmode", m).commit();   // كيتحفظ دايما
+        refreshDs();
+        boolean live = ScreenService.RUNNING;
+        if (live) {
+            // العرض شغال: كيتطبق فوراً بلا ما توقفو
+            try { startService(new Intent(this, ScreenService.class)
+                    .setAction("level").putExtra("level", mlevel).putExtra("dsmode", dsMode)); } catch (Exception ignored) {}
+        }
+        String msg = m == 0 ? "رجعنا للإعدادات القديمة." : m == 1
+                ? "✅ تم تفعيل الجودة المناسبة للداتاشو (XGA 1024×768)."
+                : "✅ تم تفعيل الجودة الصافية جداً.";
+        if (!live && m != 0) msg += " (تحفظات، وكتطبق مني تضغط «ابدأ العرض»)";
+        setStatus(msg);
+        toast(msg);
     }
 
     private String compatText() {
@@ -1656,20 +1692,15 @@ public class SenderActivity extends Activity {
     }
 
     private String rotText() {
-        return "📱 تدوير الهاتف\n" + (autoRot ? "تلقائي ✅" : "ملغى");
+        return "🔄 تدوير تلقائي (التطبيق والداتا شو فقط)\n" + (sp.getInt("s_arot", 0) == 1 ? "مفعل ✅" : "ملغى");
     }
 
     // كيفعل auto-rotate فالهاتف بوحدو، وكيرجعو لحالتو الأصلية إلا تلغات الخاصية
     private void applyAutoRotate() {
         // التدوير داخل التطبيق فقط: بلا إذن ولا فتح إعدادات النظام ولا تغيير إعدادات الهاتف
         try {
-            setRequestedOrientation(autoRot ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
-                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-            // إلا كانت نسخة قديمة بدلات إعداد النظام: كنرجعوه مرة وحدة بصمت (بلا فتح أي شاشة)
-            if (sp.contains("rot_prev") && (Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(this))) {
-                Settings.System.putInt(getContentResolver(), Settings.System.ACCELEROMETER_ROTATION, sp.getInt("rot_prev", 0));
-                sp.edit().remove("rot_prev").commit();
-            }
+            // تدوير الصورة/الفيديو فالداتا شو مستقل تماما عن الهاتف: واجهة التطبيق دايما عمودية
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         } catch (Exception ignored) {}
     }
 

@@ -148,6 +148,8 @@ public class ReceiverActivity extends Activity {
     // عرض شاشة الهاتف: 0 = ملء (تمديد) / 1 = تغطية (قص) / 2 = النسبة الأصلية
     private ImageView liveView;
     private int liveMode = 0;
+    private boolean autoRotTv = false;   // تدوير تلقائي داخل TV Box فقط (ما عندو علاقة بالهاتف)
+    private int lvlCmw = 93, lvlFullw = 100, lvlKs = 5, lvlKmode = 0;   // إعدادات الهاتف كنخزنوها هنا حتى هي باش ما تضيعش
     private Rect cropRect, candRect;
     private int candCount, frameNo, cropW, cropH;
 
@@ -209,6 +211,11 @@ public class ReceiverActivity extends Activity {
         lvlFcl = sp.getInt("l_fcl", 0);
         lvlBw = sp.getInt("l_bw", 930);
         lvlFth = sp.getInt("l_fth", 3);
+        autoRotTv = sp.getInt("l_arot", 0) == 1;
+        lvlCmw = sp.getInt("l_cmw", 93);
+        lvlFullw = sp.getInt("l_fullw", 100);
+        lvlKs = sp.getInt("l_ks", 5);
+        lvlKmode = sp.getInt("l_kmode", 0);
         buildUi();
         getWindow().getDecorView().setOnSystemUiVisibilityChangeListener(new View.OnSystemUiVisibilityChangeListener() {
             @Override public void onSystemUiVisibilityChange(int v) {
@@ -957,7 +964,8 @@ public class ReceiverActivity extends Activity {
                         + ",txt=" + lvlTxt + ",sha=" + lvlSha + ",gam=" + lvlGam + ",vdim=" + lvlVdim + ",idim=" + lvlIdim + ",wh3=" + lvlWht + ",mar=" + lvlMar
                         + ",glass=" + glass + ",q=" + quality + ",spd=" + spd + ",inv=" + inv
                         + ",brd=" + boardMode + ",bch=" + lvlBch + ",bcn=" + lvlBcn + ",bbg=" + lvlBbg + ",btn=" + lvlBtn
-                        + ",kv=" + lvlKv + ",kh=" + lvlKh + ",kr=" + lvlKr + ",px=" + lvlPx + ",py=" + lvlPy + ",kinv=" + lvlKinv + ",frm=" + lvlFrm + ",fcl=" + lvlFcl + ",bw=" + lvlBw + ",fth=" + lvlFth);
+                        + ",kv=" + lvlKv + ",kh=" + lvlKh + ",kr=" + lvlKr + ",px=" + lvlPx + ",py=" + lvlPy + ",kinv=" + lvlKinv + ",frm=" + lvlFrm + ",fcl=" + lvlFcl + ",bw=" + lvlBw + ",fth=" + lvlFth
+                        + ",arot=" + (autoRotTv ? 1 : 0) + ",cmw=" + lvlCmw + ",fullw=" + lvlFullw + ",ks=" + lvlKs + ",kmode=" + lvlKmode);
             } else if ("/vstat".equals(p)) {
                 reply(out, 200, vstat());
             } else if ("/ctl".equals(p)) {
@@ -1096,6 +1104,7 @@ public class ReceiverActivity extends Activity {
                             @Override public void run() {
                                 if (curFile == imgF) {
                                     contentLR = cf;
+                                    if (bm != null) autoRotFor(bm.getWidth(), bm.getHeight());
                                     image.setImageBitmap(bm);
                                     if (bm != null) examFill(bm.getWidth(), bm.getHeight());
                                 }
@@ -1114,7 +1123,7 @@ public class ReceiverActivity extends Activity {
                             return;
                         }
                         try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
-                        video.start(); applyBoost();
+                        autoRotFor(mp.getVideoWidth(), mp.getVideoHeight()); video.start(); applyBoost();
                         Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
                                 + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1920 ? "  ⚠ ثقيل: حمل 1080p H.264" : ""), Toast.LENGTH_LONG).show();
                     }
@@ -1157,7 +1166,7 @@ public class ReceiverActivity extends Activity {
                         return;
                     }
                     try { mp.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT); } catch (Throwable ignored) {}
-                    video.start(); applyBoost();
+                    autoRotFor(mp.getVideoWidth(), mp.getVideoHeight()); video.start(); applyBoost();
                     Toast.makeText(ReceiverActivity.this, "▶ " + mp.getVideoWidth() + "×" + mp.getVideoHeight()
                             + (Math.max(mp.getVideoWidth(), mp.getVideoHeight()) > 1920 ? "  ⚠ ثقيل: حمل 1080p H.264" : ""), Toast.LENGTH_LONG).show();
                 }
@@ -1247,6 +1256,7 @@ public class ReceiverActivity extends Activity {
         if (pdf == null) return;
         PdfRenderer.Page pg = pdf.openPage(page);
         if (examFull && examFresh) contentLR = pdfContentFrac(pg);
+        autoRotFor(pg.getWidth(), pg.getHeight());
         examFill(pg.getWidth(), pg.getHeight());
         int rh = root.getHeight() > 0 ? root.getHeight() : 1080;
         int target = Math.min((int) (rh * Math.max(1f, zoom)), quality == 2 ? 3000 : 1400);
@@ -1522,12 +1532,23 @@ public class ReceiverActivity extends Activity {
         applyZoom();
     }
 
+    // تدوير تلقائي (إلا كان مفعل): المحتوى العمودي كيتدور 90° وكيتوسع باش يملا شاشة الداتا شو الأفقية
+    private void autoRotFor(int cw, int ch) {
+        if (!autoRotTv || cw <= 0 || ch <= 0 || root == null) return;
+        int rw = root.getWidth(), rh = root.getHeight();
+        if (rw <= 0 || rh <= 0) return;
+        int q = ((cw >= ch) == (rw >= rh)) ? 0 : 1;
+        if ((rotQ & 1) == q) return;
+        rotQ = q;   // ما كنحفظوهاش: التدوير اليدوي المحفوظ كيبقى كيف هو
+        resetZoom();
+    }
+
     // تدوير الصورة/PDF/الفرضين/الفيديو على الداتا شو فقط: العرض والارتفاع كيتبدلو باش الورقة تملا الشاشة بعد التدوير
     private void applyRot() {
         int rw = root.getWidth(), rh = root.getHeight();
         if (rw <= 0 || rh <= 0) return;
         boolean odd = (rotQ & 1) == 1;
-        View[] vs = {image, multi, video};
+        View[] vs = {image, multi, video, liveView};
         for (View v : vs) {
             if (v == null) continue;
             try {
@@ -1802,6 +1823,25 @@ public class ReceiverActivity extends Activity {
             return;
         }
         else if ("gam".equals(k)) { lvlGam = clamp(n, 0, 10); ed.putInt("l_gam", lvlGam); ed.commit(); refreshSettings(); return; }
+        else if ("arot".equals(k)) {
+            autoRotTv = n > 0;
+            ed.putInt("l_arot", autoRotTv ? 1 : 0);
+            ed.commit();
+            try {
+                if (autoRotTv) {
+                    android.graphics.drawable.Drawable d = null;
+                    if (liveView != null && liveView.getVisibility() == View.VISIBLE) d = liveView.getDrawable();
+                    else if (image != null && image.getVisibility() == View.VISIBLE) d = image.getDrawable();
+                    if (d != null) autoRotFor(d.getIntrinsicWidth(), d.getIntrinsicHeight());
+                }
+                hud("🔄 تدوير تلقائي: " + (autoRotTv ? "مفعل" : "ملغى"));
+            } catch (Throwable ignored) {}
+            return;
+        }
+        else if ("cmw".equals(k)) { lvlCmw = clamp(n, 30, 300); ed.putInt("l_cmw", lvlCmw); ed.commit(); return; }
+        else if ("fullw".equals(k)) { lvlFullw = clamp(n, 50, 400); ed.putInt("l_fullw", lvlFullw); ed.commit(); return; }
+        else if ("ks".equals(k)) { lvlKs = clamp(n, 1, 10); ed.putInt("l_ks", lvlKs); ed.commit(); return; }
+        else if ("kmode".equals(k)) { lvlKmode = clamp(n, 0, 4); ed.putInt("l_kmode", lvlKmode); ed.commit(); return; }
         else if (newLevelKey(k)) { newLevel(k, n, ed); return; }
         else if ("sha".equals(k)) {
             int old = lvlSha;
@@ -1942,9 +1982,6 @@ public class ReceiverActivity extends Activity {
                 break;
             case "beep":
                 beep();
-                break;
-            case "ruler":
-                if (fx != null) fx.toggleRuler();
                 break;
             case "perm":
                 runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });
@@ -2412,7 +2449,7 @@ public class ReceiverActivity extends Activity {
                 pending.set(true);
                 runOnUiThread(new Runnable() {
                     @Override public void run() {
-                        if (streamId.get() == id) liveView.setImageBitmap(bm);
+                        if (streamId.get() == id) { autoRotFor(bm.getWidth(), bm.getHeight()); liveView.setImageBitmap(bm); }
                         pending.set(false);
                     }
                 });

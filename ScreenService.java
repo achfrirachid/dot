@@ -36,6 +36,7 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 
 public class ScreenService extends Service {
+    public static volatile boolean RUNNING;   // الواجهة تعرف واش العرض شغال باش تطبق الدقة فورا
     private MediaProjection projection;
     private VirtualDisplay vd;
     private ImageReader reader;
@@ -113,6 +114,7 @@ public class ScreenService extends Service {
         compat = in.getBooleanExtra("compat", false);
         dsMode = in.getIntExtra("dsmode", 0);
         running = true;
+        RUNNING = true;
         ht = new HandlerThread("tvlink-cap");
         ht.start();
         handler = new Handler(ht.getLooper());
@@ -329,6 +331,7 @@ public class ScreenService extends Service {
         if (cleaning) return;
         cleaning = true;
         running = false;
+        RUNNING = false;
         try { if (reader != null) reader.setOnImageAvailableListener(null, null); } catch (Exception ignored) {}
         try { if (vd != null) vd.release(); } catch (Exception ignored) {}
         try { if (projection != null) projection.stop(); } catch (Exception ignored) {}
