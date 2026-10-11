@@ -581,6 +581,10 @@ public class SenderActivity extends Activity {
         ex.addView(hw(gbtn("🖼\nصورة", C_PINK, ctl("imode")), 1f));
         ex.addView(hw(qBtn, 1f));
         center.addView(fx(ex, 54));
+        LinearLayout slp = box(false);
+        slp.addView(hw(gbtn("😴\nنوم TV Box", C_ORANGE, ctl("sleep")), 1f));
+        slp.addView(hw(gbtn("☀️\nاستيقاظ", C_GREEN, ctl("wake")), 1f));
+        center.addView(fx(slp, 54));
         center.addView(fx(gbtn("🔄  تدوير الصورة فالداتا شو (الهاتف ما كيتحركش)", C_CYAN, ctl("rot")), 50));
 
         // ===== 4) ضبط الفيديو (السطوع · التباين · الألوان · التعتيم) =====

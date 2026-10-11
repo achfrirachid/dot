@@ -1987,6 +1987,56 @@ public class ReceiverActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    // ---------------- نوم / استيقاظ TV Box (باش الداتاشو يفقد الإشارة ويطفي بوحدو) ----------------
+    private android.os.PowerManager.WakeLock sleepLock;
+
+    public static class TvAdmin extends android.app.admin.DeviceAdminReceiver {
+    }
+
+    private void sleepNow() {
+        try {
+            // CPU يبقى خدام باش نقدرو نفيقوه من الهاتف (الواي فاي lock ديجا كاين)
+            if (sleepLock == null) {
+                sleepLock = ((android.os.PowerManager) getSystemService(POWER_SERVICE))
+                        .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "tvlink:sleep");
+                sleepLock.setReferenceCounted(false);
+            }
+            if (!sleepLock.isHeld()) sleepLock.acquire();
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            android.app.admin.DevicePolicyManager dpm =
+                    (android.app.admin.DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+            android.content.ComponentName cn = new android.content.ComponentName(this, TvAdmin.class);
+            if (dpm.isAdminActive(cn)) {
+                dpm.lockNow();   // الشاشة كتطفا => الداتاشو كيشوف "No Signal"
+            } else {
+                Toast.makeText(this, "فعّل صلاحية القفل (مرة وحدة) من TV Box", Toast.LENGTH_LONG).show();
+                Intent i = new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+                i.putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, cn);
+                startActivity(i);
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "تعذر النوم: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void wakeNow() {
+        try {
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                    | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                    | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            android.os.PowerManager.WakeLock w = pm.newWakeLock(
+                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                            | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP, "tvlink:wake");
+            w.acquire(5000);
+            if (sleepLock != null && sleepLock.isHeld()) sleepLock.release();
+            Intent i = new Intent(this, ReceiverActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(i);
+        } catch (Exception ignored) {}
+    }
+
     private void control(String cmd) {
         if (cmd == null) return;
         if (cmd.indexOf(':') > 0) { levelCmd(cmd); return; }
@@ -1996,6 +2046,15 @@ public class ReceiverActivity extends Activity {
                 break;
             case "beep":
                 beep();
+                break;
+            case "sleep":
+                Toast.makeText(this, "😴 TV Box غادي ينعس من بعد 5 ثواني", Toast.LENGTH_SHORT).show();
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override public void run() { sleepNow(); }
+                }, 5000);
+                break;
+            case "wake":
+                wakeNow();
                 break;
             case "perm":
                 runOnUiThread(new Runnable() { @Override public void run() { askNextPermission(); } });
